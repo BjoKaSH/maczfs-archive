@@ -1712,8 +1712,10 @@ kmem_cache_destroy(kmem_cache_t *cp)
 	if (kmem_taskq != NULL)
 		taskq_wait(kmem_taskq);
 
+#ifndef __APPLE__
+	/* OS X doesn't yet support per CPU magazines */
 	kmem_cache_magazine_purge(cp);
-
+#endif
 	mutex_enter(&cp->cache_lock);
 	if (cp->cache_buftotal != 0)
 		cmn_err(CE_WARN, "kmem_cache_destroy: '%s' (%p) not empty",
@@ -1767,7 +1769,11 @@ kmem_cache_init(int pass, int use_large_pages)
 
 	for (i = 0; i < sizeof (kmem_magtype) / sizeof (*mtp); i++) {
 		mtp = &kmem_magtype[i];
+#ifdef __APPLE__
+		(void) snprintf(name, sizeof(name), "kmem_magazine_%d", mtp->mt_magsize);
+#else
 		(void) sprintf(name, "kmem_magazine_%d", mtp->mt_magsize);
+#endif
 		mtp->mt_cache = kmem_cache_create(name,
 		    (mtp->mt_magsize + 1) * sizeof (void *),
 		    mtp->mt_align, NULL, NULL, NULL, NULL,

@@ -19,7 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
+ */
+/* Portions Copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -214,9 +217,15 @@ process_error_log(spa_t *spa, uint64_t obj, void *addr, size_t *count)
 
 		name_to_bookmark(za.za_name, &zb);
 
+#ifdef __APPLE__
+		if (copyout(&zb, CAST_USER_ADDR_T((char *)addr +
+		    (*count - 1) * sizeof (zbookmark_t)),
+		    sizeof (zbookmark_t)) != 0)
+#else
 		if (copyout(&zb, (char *)addr +
 		    (*count - 1) * sizeof (zbookmark_t),
 		    sizeof (zbookmark_t)) != 0)
+#endif
 			return (EFAULT);
 
 		*count -= 1;
@@ -237,9 +246,15 @@ process_error_list(avl_tree_t *list, void *addr, size_t *count)
 		if (*count == 0)
 			return (ENOMEM);
 
+#ifdef __APPLE__
+		if (copyout(&se->se_bookmark, CAST_USER_ADDR_T((char *)addr +
+		    (*count - 1) * sizeof (zbookmark_t)),
+		    sizeof (zbookmark_t)) != 0)
+#else
 		if (copyout(&se->se_bookmark, (char *)addr +
 		    (*count - 1) * sizeof (zbookmark_t),
 		    sizeof (zbookmark_t)) != 0)
+#endif
 			return (EFAULT);
 
 		*count -= 1;
@@ -298,10 +313,7 @@ void
 spa_errlog_rotate(spa_t *spa)
 {
 	mutex_enter(&spa->spa_errlist_lock);
-
-	ASSERT(!spa->spa_scrub_finished);
 	spa->spa_scrub_finished = B_TRUE;
-
 	mutex_exit(&spa->spa_errlist_lock);
 }
 

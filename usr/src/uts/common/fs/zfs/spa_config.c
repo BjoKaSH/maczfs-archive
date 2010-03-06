@@ -20,9 +20,10 @@
  */
 
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ *
+ * Portions Copyright 2009 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -45,16 +46,18 @@
 /*
  * Pool configuration repository.
  *
- * The configuration for all pools, in addition to being stored on disk, is
- * stored in /etc/zfs/zpool.cache as a packed nvlist.  The kernel maintains
- * this list as pools are created, destroyed, or modified.
+ * Pool configuration is stored as a packed nvlist on the filesystem.  By
+ * default, all pools are stored in /etc/zfs/zpool.cache and loaded on boot
+ * (when the ZFS module is loaded).  Pools can also have the 'cachefile'
+ * property set that allows them to be stored in an alternate location until
+ * the control of external software.
  *
- * We have a single nvlist which holds all the configuration information.  When
- * the module loads, we read this information from the cache and populate the
- * SPA namespace.  This namespace is maintained independently in spa.c.
- * Whenever the namespace is modified, or the configuration of a pool is
- * changed, we call spa_config_sync(), which walks through all the active pools
- * and writes the configuration to disk.
+ * For each cache file, we have a single nvlist which holds all the
+ * configuration information.  When the module loads, we read this information
+ * from /etc/zfs/zpool.cache and populate the SPA namespace.  This namespace is
+ * maintained independently in spa.c.  Whenever the namespace is modified, or
+ * the configuration of a pool is changed, we call spa_config_sync(), which
+ * walks through all the active pools and writes the configuration to disk.
  */
 
 static uint64_t spa_config_generation = 1;
@@ -63,7 +66,7 @@ static uint64_t spa_config_generation = 1;
  * This can be overridden in userland to preserve an alternate namespace for
  * userland pools when doing testing.
  */
-const char *spa_config_dir = ZPOOL_CACHE_DIR;
+const char *spa_config_path = ZPOOL_CACHE;
 
 /*
  * Called when the module is first loaded, this routine loads the configuration
@@ -85,11 +88,10 @@ spa_config_load(void)
 	 * Open the configuration file.
 	 */
 #ifdef __APPLE__
-	(void) snprintf(pathname, sizeof (pathname), "%s%s/%s",
-	    "", spa_config_dir, ZPOOL_CACHE_FILE);
+	(void) snprintf(pathname, sizeof (pathname), "%s", spa_config_path);
 #else
-	(void) snprintf(pathname, sizeof (pathname), "%s%s/%s",
-	    (rootdir != NULL) ? "./" : "", spa_config_dir, ZPOOL_CACHE_FILE);
+	(void) snprintf(pathname, sizeof (pathname), "%s%s",
+	    (rootdir != NULL) ? "./" : "", spa_config_path);
 #endif
 
 	file = kobj_open_file(pathname);
@@ -147,94 +149,141 @@ out:
 	kobj_close_file(file);
 }
 
-/*
- * Synchronize all pools to disk.  This must be called with the namespace lock
- * held.
- */
-void
-spa_config_sync(void)
+static void
+spa_config_write(spa_config_dirent_t *dp, nvlist_t *nvl)
 {
-	spa_t *spa = NULL;
-	nvlist_t *config;
 	size_t buflen;
 	char *buf;
-#ifdef __APPLE__
-	struct vnode *vp;
-#else
 	vnode_t *vp;
-#endif
 	int oflags = FWRITE | FTRUNC | FCREAT | FOFFMAX;
-	char pathname[128];
-	char pathname2[128];
-
-	ASSERT(MUTEX_HELD(&spa_namespace_lock));
-
-	VERIFY(nvlist_alloc(&config, NV_UNIQUE_NAME, KM_SLEEP) == 0);
+	char tempname[128];
 
 	/*
-	 * Add all known pools to the configuration list, ignoring those with
-	 * alternate root paths.
+	 * If the nvlist is empty (NULL), then remove the old cachefile.
 	 */
-	spa = NULL;
-	while ((spa = spa_next(spa)) != NULL) {
-		mutex_enter(&spa->spa_config_cache_lock);
-#ifdef __APPLE__
-		/*
-		 * Any pools with disk based vdevs are omitted from the config
-		 * file (since disk device nodes have a dynamic name/location).
-		 */
-		if (spa->spa_config && spa->spa_name && spa->spa_root == NULL &&
-		    vdev_contains_disks(spa->spa_root_vdev) == 0)
-#else
-		if (spa->spa_config && spa->spa_name && spa->spa_root == NULL)
-#endif
-			VERIFY(nvlist_add_nvlist(config, spa->spa_name,
-			    spa->spa_config) == 0);
-		mutex_exit(&spa->spa_config_cache_lock);
+	if (nvl == NULL) {
+		(void) vn_remove(dp->scd_path, UIO_SYSSPACE, RMFILE);
+		return;
 	}
 
 	/*
 	 * Pack the configuration into a buffer.
 	 */
-	VERIFY(nvlist_size(config, &buflen, NV_ENCODE_XDR) == 0);
+	VERIFY(nvlist_size(nvl, &buflen, NV_ENCODE_XDR) == 0);
 
 	buf = kmem_alloc(buflen, KM_SLEEP);
 
-	VERIFY(nvlist_pack(config, &buf, &buflen, NV_ENCODE_XDR,
+	VERIFY(nvlist_pack(nvl, &buf, &buflen, NV_ENCODE_XDR,
 	    KM_SLEEP) == 0);
 
+#ifdef __APPLE_KERNEL__
+	/*
+	 * OS X - since vn_rename() and vn_remove() are both missing from
+	 * the KPI, we have to just write over the existing file!  Since
+	 * the OS X cache file only contains pools that are built from
+	 * file VDEVs, this cache file should be small.
+	 */
+	(void) snprintf(tempname, sizeof (tempname), "%s", dp->scd_path);
+#else
 	/*
 	 * Write the configuration to disk.  We need to do the traditional
 	 * 'write to temporary file, sync, move over original' to make sure we
 	 * always have a consistent view of the data.
 	 */
-	(void) snprintf(pathname, sizeof (pathname), "%s/%s", spa_config_dir,
-	    ZPOOL_CACHE_TMP);
+	(void) snprintf(tempname, sizeof (tempname), "%s.tmp", dp->scd_path);
+#endif
 
-	if (vn_open(pathname, UIO_SYSSPACE, oflags, 0644, &vp, CRCREAT, 0) != 0)
+	if (vn_open(tempname, UIO_SYSSPACE, oflags, 0644, &vp, CRCREAT, 0) != 0)
 		goto out;
 
 	if (vn_rdwr(UIO_WRITE, vp, buf, buflen, 0, UIO_SYSSPACE,
 	    0, RLIM64_INFINITY, kcred, NULL) == 0 &&
-	    VOP_FSYNC(vp, FSYNC, kcred) == 0) {
-		(void) snprintf(pathname2, sizeof (pathname2), "%s/%s",
-		    spa_config_dir, ZPOOL_CACHE_FILE);
-		(void) vn_rename(pathname, pathname2, UIO_SYSSPACE);
+	    VOP_FSYNC(vp, FSYNC, kcred, NULL) == 0) {
+		(void) vn_rename(tempname, dp->scd_path, UIO_SYSSPACE);
 	}
 
-	(void) VOP_CLOSE(vp, oflags, 1, 0, kcred);
+	(void) VOP_CLOSE(vp, oflags, 1, 0, kcred, NULL);
 #ifndef __APPLE__
 	VN_RELE(vp);
 #endif
 out:
-#ifndef __APPLE__
-// ### bring-up hack, omit until vnode_rename is supported.
-	(void) vn_remove(pathname, UIO_SYSSPACE, RMFILE);
+	(void) vn_remove(tempname, UIO_SYSSPACE, RMFILE);
+	kmem_free(buf, buflen);
+}
+
+/*
+ * Synchronize pool configuration to disk.  This must be called with the
+ * namespace lock held.
+ */
+void
+spa_config_sync(spa_t *target, boolean_t removing, boolean_t postsysevent)
+{
+	spa_t *spa = NULL;
+	spa_config_dirent_t *dp, *tdp;
+	nvlist_t *nvl;
+
+	ASSERT(MUTEX_HELD(&spa_namespace_lock));
+
+	/*
+	 * Iterate over all cachefiles for the pool, past or present.  When the
+	 * cachefile is changed, the new one is pushed onto this list, allowing
+	 * us to update previous cachefiles that no longer contain this pool.
+	 */
+	for (dp = list_head(&target->spa_config_list); dp != NULL;
+	    dp = list_next(&target->spa_config_list, dp)) {
+		spa = NULL;
+		if (dp->scd_path == NULL)
+			continue;
+
+		/*
+		 * Iterate over all pools, adding any matching pools to 'nvl'.
+		 */
+		nvl = NULL;
+		while ((spa = spa_next(spa)) != NULL) {
+			if (spa->spa_config == NULL || spa->spa_name == NULL)
+				continue;
+
+			if (spa == target && removing)
+				continue;
+
+#ifdef __APPLE__
+			/* OS X - Omit disk based pools */
+			if (vdev_contains_disks(spa->spa_root_vdev))
+				continue;
 #endif
+			tdp = list_head(&spa->spa_config_list);
+			ASSERT(tdp != NULL);
+			if (tdp->scd_path == NULL ||
+			    strcmp(tdp->scd_path, dp->scd_path) != 0)
+				continue;
+
+			if (nvl == NULL)
+				VERIFY(nvlist_alloc(&nvl, NV_UNIQUE_NAME,
+				    KM_SLEEP) == 0);
+
+			VERIFY(nvlist_add_nvlist(nvl, spa->spa_name,
+			    spa->spa_config) == 0);
+		}
+
+		spa_config_write(dp, nvl);
+		nvlist_free(nvl);
+	}
+
+	/*
+	 * Remove any config entries older than the current one.
+	 */
+	dp = list_head(&target->spa_config_list);
+	while ((tdp = list_next(&target->spa_config_list, dp)) != NULL) {
+		list_remove(&target->spa_config_list, tdp);
+		if (tdp->scd_path != NULL)
+			spa_strfree(tdp->scd_path);
+		kmem_free(tdp, sizeof (spa_config_dirent_t));
+	}
+
 	spa_config_generation++;
 
-	kmem_free(buf, buflen);
-	nvlist_free(config);
+	if (postsysevent)
+		spa_event_notify(target, NULL, ESC_ZFS_CONFIG_SYNC);
 }
 
 /*
@@ -297,7 +346,9 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 	nvlist_t *config, *nvroot;
 	vdev_t *rvd = spa->spa_root_vdev;
 	unsigned long hostid = 0;
-
+#ifdef __APPLE__
+	boolean_t skipdevpaths = (txg != -1ULL && txg != 0ULL);
+#endif
 	ASSERT(spa_config_held(spa, RW_READER) ||
 	    spa_config_held(spa, RW_WRITER));
 
@@ -323,7 +374,7 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 	VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_POOL_GUID,
 	    spa_guid(spa)) == 0);
 #ifndef __APPLE__	
-(void) ddi_strtoul(hw_serial, NULL, 10, &hostid);
+	(void) ddi_strtoul(hw_serial, NULL, 10, &hostid);
 #endif
 	if (hostid != 0) {
 		VERIFY(nvlist_add_uint64(config, ZPOOL_CONFIG_HOSTID,
@@ -353,7 +404,12 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 		vd = vd->vdev_top;		/* label contains top config */
 	}
 
-	nvroot = vdev_config_generate(spa, vd, getstats, B_FALSE);
+#ifdef __APPLE__
+	nvroot = vdev_config_generate(spa, vd, getstats, B_FALSE, B_FALSE,
+	                              skipdevpaths);
+#else
+	nvroot = vdev_config_generate(spa, vd, getstats, B_FALSE, B_FALSE);
+#endif
 	VERIFY(nvlist_add_nvlist(config, ZPOOL_CONFIG_VDEV_TREE, nvroot) == 0);
 	nvlist_free(nvroot);
 
@@ -361,11 +417,23 @@ spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg, int getstats)
 }
 
 /*
- * Update all disk labels, generate a fresh config based on the current
- * in-core state, and sync the global config cache.
+ * For a pool that's not currently a booting rootpool, update all disk labels,
+ * generate a fresh config based on the current in-core state, and sync the
+ * global config cache.
  */
 void
 spa_config_update(spa_t *spa, int what)
+{
+	spa_config_update_common(spa, what, FALSE);
+}
+
+/*
+ * Update all disk labels, generate a fresh config based on the current
+ * in-core state, and sync the global config cache (do not sync the config
+ * cache if this is a booting rootpool).
+ */
+void
+spa_config_update_common(spa_t *spa, int what, boolean_t isroot)
 {
 	vdev_t *rvd = spa->spa_root_vdev;
 	uint64_t txg;
@@ -403,8 +471,9 @@ spa_config_update(spa_t *spa, int what)
 	/*
 	 * Update the global config cache to reflect the new mosconfig.
 	 */
-	spa_config_sync();
+	if (!isroot)
+		spa_config_sync(spa, B_FALSE, what != SPA_CONFIG_UPDATE_POOL);
 
 	if (what == SPA_CONFIG_UPDATE_POOL)
-		spa_config_update(spa, SPA_CONFIG_UPDATE_VDEVS);
+		spa_config_update_common(spa, SPA_CONFIG_UPDATE_VDEVS, isroot);
 }

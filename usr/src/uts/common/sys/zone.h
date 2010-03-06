@@ -21,13 +21,18 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ */
+/*
+ * Portions copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef _SYS_ZONE_H
 #define	_SYS_ZONE_H
 
-/* This header file intentionally left blank */
+#include <sys/types.h>
+#include <sys/mutex.h>
+#include <sys/param.h>
+#include <sys/cred.h>
 
 #endif /* _SYS_ZONE_H */

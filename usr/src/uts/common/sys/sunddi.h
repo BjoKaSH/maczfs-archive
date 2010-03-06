@@ -21,13 +21,11 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
- * Use is subject to license terms.
  */
-
 #ifndef _SYS_SUNDDI_H
 #define	_SYS_SUNDDI_H
 
-/* This header file intentionally left blank */
+#include <sys/isa_defs.h>
+#include <sys/u8_textprep.h>
 
 #endif /* _SYS_SUNDDI_H */

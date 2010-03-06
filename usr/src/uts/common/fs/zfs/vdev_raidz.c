@@ -22,6 +22,9 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ *
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
+ * Use is subject to license terms.
  */
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
@@ -242,7 +245,20 @@ vdev_raidz_map_alloc(zio_t *zio, uint64_t unit_shift, uint64_t dcols,
 	for (c = 0; c < rm->rm_firstdatacol; c++)
 		rm->rm_col[c].rc_data = zio_buf_alloc(rm->rm_col[c].rc_size);
 
+#ifdef __APPLE_KERNEL__
+	void *p;
+	uplinfo_t *upli;
+	upli = zio->io_uplinfo;
+	if (upli != NULL) {
+		p = getuplvaddr(upli, FALSE/*for_read*/) +
+			(upli->ui_f_off - upli_sharedupl(upli)->su_upl_f_off);
+	} else {
+		p = zio->io_data;
+	}
+	rm->rm_col[c].rc_data = p;
+#else
 	rm->rm_col[c].rc_data = zio->io_data;
+#endif
 
 	for (c = c + 1; c < acols; c++)
 		rm->rm_col[c].rc_data = (char *)rm->rm_col[c - 1].rc_data +
@@ -639,7 +655,7 @@ vdev_raidz_repair_done(zio_t *zio)
 	vdev_raidz_map_free(zio->io_private);
 }
 
-static void
+static int
 vdev_raidz_io_start(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
@@ -672,8 +688,8 @@ vdev_raidz_io_start(zio_t *zio)
 			    zio->io_type, zio->io_priority, ZIO_FLAG_CANFAIL,
 			    vdev_raidz_child_done, rc));
 		}
-		zio_wait_children_done(zio);
-		return;
+
+		return (zio_wait_for_children_done(zio));
 	}
 
 	ASSERT(zio->io_type == ZIO_TYPE_READ);
@@ -686,7 +702,7 @@ vdev_raidz_io_start(zio_t *zio)
 	for (c = rm->rm_cols - 1; c >= 0; c--) {
 		rc = &rm->rm_col[c];
 		cvd = vd->vdev_child[rc->rc_devidx];
-		if (vdev_is_dead(cvd)) {
+		if (!vdev_readable(cvd)) {
 			if (c >= rm->rm_firstdatacol)
 				rm->rm_missingdata++;
 			else
@@ -714,7 +730,7 @@ vdev_raidz_io_start(zio_t *zio)
 		}
 	}
 
-	zio_wait_children_done(zio);
+	return (zio_wait_for_children_done(zio));
 }
 
 /*
@@ -783,7 +799,7 @@ static uint64_t raidz_corrected_p;
 static uint64_t raidz_corrected_q;
 static uint64_t raidz_corrected_pq;
 
-static void
+static int
 vdev_raidz_io_done(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
@@ -840,8 +856,8 @@ vdev_raidz_io_done(zio_t *zio)
 			zio->io_error = 0;
 
 		vdev_raidz_map_free(zio);
-		zio_next_stage(zio);
-		return;
+
+		return (ZIO_PIPELINE_CONTINUE);
 	}
 
 	ASSERT(zio->io_type == ZIO_TYPE_READ);
@@ -1022,8 +1038,8 @@ vdev_raidz_io_done(zio_t *zio)
 			    vdev_raidz_child_done, rc));
 		} while (++c < rm->rm_cols);
 		dprintf("rereading\n");
-		zio_wait_children_done(zio);
-		return;
+
+		return (zio_wait_for_children_done(zio));
 	}
 
 	/*
@@ -1205,12 +1221,13 @@ done:
 		}
 
 		zio_nowait(rio);
-		zio_wait_children_done(zio);
-		return;
+
+		return (zio_wait_for_children_done(zio));
 	}
 
 	vdev_raidz_map_free(zio);
-	zio_next_stage(zio);
+
+	return (ZIO_PIPELINE_CONTINUE);
 }
 
 static void
@@ -1228,6 +1245,7 @@ vdev_raidz_state_change(vdev_t *vd, int faulted, int degraded)
 vdev_ops_t vdev_raidz_ops = {
 	vdev_raidz_open,
 	vdev_raidz_close,
+	NULL,
 	vdev_raidz_asize,
 	vdev_raidz_io_start,
 	vdev_raidz_io_done,

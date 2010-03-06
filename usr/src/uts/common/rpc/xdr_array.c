@@ -31,11 +31,11 @@
  * Portions of this source code were derived from Berkeley 4.3 BSD
  * under license from the Regents of the University of California.
  */
-
-/* Portions Copyright 2007 Apple Inc. All rights reserved.
+/*
+ * Portions Copyright 2007 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
- 
+
 #pragma ident	"@(#)xdr_array.c	1.16	05/06/08 SMI"
 
 /*
@@ -51,13 +51,8 @@
 #include <sys/systm.h>
 #endif
 
-#ifdef __APPLE__
-#include "../rpc/types.h"
-#include "../rpc/xdr.h"
-#else
 #include <rpc/types.h>
 #include <rpc/xdr.h>
-#endif /*__APPLE*/
 
 #define	LASTUNSIGNED	((uint_t)0-1)
 

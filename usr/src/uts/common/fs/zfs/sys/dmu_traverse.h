@@ -19,7 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
+ *
+ * Portions copyright 2009 Apple, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -100,6 +103,7 @@ struct traverse_handle {
 
 int traverse_dsl_dataset(struct dsl_dataset *ds, uint64_t txg_start,
     int advance, blkptr_cb_t func, void *arg);
+int traverse_zvol(objset_t *os, int advance, blkptr_cb_t func, void *arg);
 
 traverse_handle_t *traverse_init(spa_t *spa, blkptr_cb_t *func, void *arg,
     int advance, int zio_flags);

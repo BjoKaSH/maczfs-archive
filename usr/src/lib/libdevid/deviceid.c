@@ -22,11 +22,10 @@
 /*
  * Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
- 
-#pragma ident	"@(#)deviceid.c	1.26	05/06/08 SMI"
+#pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -34,16 +33,23 @@
 #include <ftw.h>
 #include <string.h>
 #include <thread.h>
-//#include <synch.h>
+#ifndef __APPLE__
+#include <synch.h>
+#endif
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-//#include <sys/modctl.h>
+#ifndef __APPLE__
+#include <sys/modctl.h>
+#endif
 #include <strings.h>
 
-//#include <libdevinfo.h>
-#include "libdevid/libdevid.h"
+#ifndef __APPLE__
+#include <libdevinfo.h>
+#endif
+#include "libdevid.h"
 
+#ifdef __APPLE__
 /*
  * return code for node_callback
  */
@@ -59,7 +65,7 @@
 #define	DI_SECONDARY_LINK	0x02
 #define	DI_LINK_TYPES		0x03
 
-
+#endif
 
 /*
  * Get Device Id from an open file descriptor
@@ -78,7 +84,7 @@ devid_get(int fd, ddi_devid_t *devidp)
 	/* If not char or block device, then error */
 	if (!S_ISCHR(statb.st_mode) && !S_ISBLK(statb.st_mode))
 		return (-1);
-#if 0
+#ifndef __APPLE__
 	/* Get the device id size */
 	dev = statb.st_rdev;
 	if (modctl(MODSIZEOF_DEVID, dev, &len) != 0)
@@ -121,7 +127,7 @@ devid_get_minor_name(int fd, char **minor_namep)
 
 	spectype = statb.st_mode & S_IFMT;
 	dev = statb.st_rdev;
-#if 0
+#ifndef __APPLE__
 	/* Get the minor name size */
 	if (modctl(MODSIZEOF_MINORNAME, dev, spectype, &len) != 0)
 		return (-1);
@@ -184,7 +190,7 @@ nmlist_add(struct nmlist **nlhp, char *path)
 	return (nl);
 }
 
-#if 0
+#ifndef __APPLE__
 /* information needed by devlink_callback to call nmlist_add */
 struct devlink_cbinfo {
 	struct nmlist	**cbi_nlhp;
@@ -221,7 +227,7 @@ int			devid_deviceid_to_nmlist_link = DI_PRIMARY_LINK;
  *   DEVICEID_NMLIST_SLINK -	reduce overhead by reuse the previous
  *				di_devlink_init.
  */
-#if 0
+#ifndef __APPLE__
 #define	DEVICEID_NMLIST_SLINK	1
 int			devid_deviceid_to_nmlist_flg = 0;
 static di_devlink_handle_t devid_deviceid_to_nmlist_dlh = NULL;	/* SLINK */
@@ -252,9 +258,13 @@ devid_deviceid_to_nmlist(
 	char			*paths = NULL;
 	char			*path;
 	int			lens;
-//	di_devlink_handle_t	dlh = NULL;
+#ifndef __APPLE__
+	di_devlink_handle_t	dlh = NULL;
+#endif
 	int			ret = -1;
-//	struct devlink_cbinfo	cbi;
+#ifndef __APPLE__
+	struct devlink_cbinfo	cbi;
+#endif
 	struct nmlist		*nlh = NULL;
 	struct nmlist		*nl;
 	devid_nmlist_t		*rl;
@@ -276,7 +286,7 @@ devid_deviceid_to_nmlist(
 		return (-1);
 	}
 
-#if 0
+#ifndef __APPLE__
 	/* translate devid/minor_name to /devices paths */
 again:	if (modctl(MODDEVID2PATHS, devid, minor_name, 0, &lens, NULL) != 0)
 		goto out;

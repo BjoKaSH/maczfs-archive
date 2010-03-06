@@ -2,9 +2,8 @@
  * CDDL HEADER START
  *
  * The contents of this file are subject to the terms of the
- * Common Development and Distribution License, Version 1.0 only
- * (the "License").  You may not use this file except in compliance
- * with the License.
+ * Common Development and Distribution License (the "License").
+ * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
  * or http://www.opensolaris.org/os/licensing.
@@ -20,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ *
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -46,7 +46,7 @@ extern "C" {
 typedef struct vdev_disk {
 #ifdef __APPLE__
 	char		*vd_minor;
-	struct vnode	*vd_devvp;
+	vnode_t		*vd_devvp;
 #else
 	ddi_devid_t	vd_devid;
 	char		*vd_minor;
@@ -54,6 +54,13 @@ typedef struct vdev_disk {
 #endif
 } vdev_disk_t;
 
+#ifdef _KERNEL
+#ifdef __APPLE__
+extern int vdev_disk_physio(struct vnode *, caddr_t, size_t, uint64_t, int);
+#else
+extern int vdev_disk_physio(ldi_handle_t, caddr_t, size_t, uint64_t, int);
+#endif /* __APPLE__ */
+#endif
 #ifdef	__cplusplus
 }
 #endif

@@ -20,9 +20,10 @@
  */
 
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ *
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -47,11 +48,17 @@
  * 	zfs_unshare()
  *
  * 	zfs_is_shared_nfs()
- * 	zfs_share_nfs()
- * 	zfs_unshare_nfs()
- * 	zfs_unshareall_nfs()
+ * 	zfs_is_shared_smb()
  * 	zfs_is_shared_iscsi()
+ * 	zfs_share_proto()
+ * 	zfs_shareall();
  * 	zfs_share_iscsi()
+ * 	zfs_unshare_nfs()
+ * 	zfs_unshare_smb()
+ * 	zfs_unshareall_nfs()
+ *	zfs_unshareall_smb()
+ *	zfs_unshareall()
+ *	zfs_unshareall_bypath()
  * 	zfs_unshare_iscsi()
  *
  * The following functions are available for pool consumers, and will
@@ -80,7 +87,11 @@
 #endif /*__APPLE__*/
 #include <sys/mntent.h>
 #include <sys/mnttab.h>
+#ifdef __APPLE__
+#include <sys/zfs_mount.h>
+#else
 #include <sys/mount.h>
+#endif
 #include <sys/stat.h>
 
 #include <libzfs.h>
@@ -94,11 +105,51 @@
 
 #define	MAXISALEN	257	/* based on sysinfo(2) man page */
 
+static int zfs_share_proto(zfs_handle_t *, zfs_share_proto_t *);
+zfs_share_type_t zfs_is_shared_proto(zfs_handle_t *, char **,
+    zfs_share_proto_t);
+
+#ifdef __APPLE__
+extern int getmountinfo(struct statfs **mntbufp, int flags);
+#endif
+
+
 #ifndef __APPLE__
 static int (*iscsitgt_zfs_share)(const char *);
 static int (*iscsitgt_zfs_unshare)(const char *);
 static int (*iscsitgt_zfs_is_shared)(const char *);
 static int (*iscsitgt_svc_online)();
+
+/*
+ * The share protocols table must be in the same order as the zfs_share_prot_t
+ * enum in libzfs_impl.h
+ */
+typedef struct {
+	zfs_prop_t p_prop;
+	char *p_name;
+	int p_share_err;
+	int p_unshare_err;
+} proto_table_t;
+
+proto_table_t proto_table[PROTO_END] = {
+	{ZFS_PROP_SHARENFS, "nfs", EZFS_SHARENFSFAILED, EZFS_UNSHARENFSFAILED},
+	{ZFS_PROP_SHARESMB, "smb", EZFS_SHARESMBFAILED, EZFS_UNSHARESMBFAILED},
+};
+
+zfs_share_proto_t nfs_only[] = {
+	PROTO_NFS,
+	PROTO_END
+};
+
+zfs_share_proto_t smb_only[] = {
+	PROTO_SMB,
+	PROTO_END
+};
+zfs_share_proto_t share_all_proto[] = {
+	PROTO_NFS,
+	PROTO_SMB,
+	PROTO_END
+};
 
 #pragma init(zfs_iscsi_init)
 static void
@@ -125,29 +176,56 @@ zfs_iscsi_init(void)
 #endif /* !__APPLE__ */
 
 /*
- * Search the sharetab for the given mountpoint, returning true if it is found.
+ * Search the sharetab for the given mountpoint and protocol, returning
+ * a zfs_share_type_t value.
  */
-static boolean_t
-is_shared(libzfs_handle_t *hdl, const char *mountpoint)
+static zfs_share_type_t
+is_shared(libzfs_handle_t *hdl, const char *mountpoint, zfs_share_proto_t proto)
 {
+#ifndef __APPLE__
 	char buf[MAXPATHLEN], *tab;
+	char *ptr;
 
 	if (hdl->libzfs_sharetab == NULL)
-		return (0);
+		return (SHARED_NOT_SHARED);
 
 	(void) fseek(hdl->libzfs_sharetab, 0, SEEK_SET);
 
 	while (fgets(buf, sizeof (buf), hdl->libzfs_sharetab) != NULL) {
 
 		/* the mountpoint is the first entry on each line */
-		if ((tab = strchr(buf, '\t')) != NULL) {
+		if ((tab = strchr(buf, '\t')) == NULL)
+			continue;
+
+		*tab = '\0';
+		if (strcmp(buf, mountpoint) == 0) {
+			/*
+			 * the protocol field is the third field
+			 * skip over second field
+			 */
+			ptr = ++tab;
+			if ((tab = strchr(ptr, '\t')) == NULL)
+				continue;
+			ptr = ++tab;
+			if ((tab = strchr(ptr, '\t')) == NULL)
+				continue;
 			*tab = '\0';
-			if (strcmp(buf, mountpoint) == 0)
-				return (B_TRUE);
+			if (strcmp(ptr,
+			    proto_table[proto].p_name) == 0) {
+				switch (proto) {
+				case PROTO_NFS:
+					return (SHARED_NFS);
+				case PROTO_SMB:
+					return (SHARED_SMB);
+				default:
+					return (0);
+				}
+			}
 		}
 	}
+#endif
 
-	return (B_FALSE);
+	return (SHARED_NOT_SHARED);
 }
 
 #ifndef __APPLE__
@@ -222,10 +300,10 @@ zfs_is_mounted(zfs_handle_t *zhp, char **where)
  */
 static boolean_t
 zfs_is_mountable(zfs_handle_t *zhp, char *buf, size_t buflen,
-    zfs_source_t *source)
+    zprop_source_t *source)
 {
 	char sourceloc[ZFS_MAXNAMELEN];
-	zfs_source_t sourcetype;
+	zprop_source_t sourcetype;
 
 	if (!zfs_prop_valid_for_type(ZFS_PROP_MOUNTPOINT, zhp->zfs_type))
 		return (B_FALSE);
@@ -237,7 +315,7 @@ zfs_is_mountable(zfs_handle_t *zhp, char *buf, size_t buflen,
 	    strcmp(buf, ZFS_MOUNTPOINT_LEGACY) == 0)
 		return (B_FALSE);
 
-	if (!zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT))
+	if (zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT) == ZFS_CANMOUNT_OFF)
 		return (B_FALSE);
 
 #ifndef	__APPLE__
@@ -256,14 +334,41 @@ zfs_is_mountable(zfs_handle_t *zhp, char *buf, size_t buflen,
 #ifdef __APPLE__
 
 struct zfs_mount_args {
-	const char	*fspec;		/* block special device to mount */
-	int	flags; 
+	const char	*mountdev;   /* pseudo device */
+	const char	*dataset;    /* actual dataset path */
+	int		flags; 
 };
 
-#define MOUNT_POINT_COOKIE		".autodiskmounted"
 #define MOUNT_POINT_CUSTOM_ICON		".VolumeIcon.icns"
-#define CUSTOM_ICON_PATH		"/System/Library/Filesystems/zfs.fs/Contents/Resources/VolumeIcon.icns"
 
+/*
+ * parse for option path overrides
+ */
+static boolean_t
+hasoptionalpath(char *options, char *opt, char *buf, size_t buflen)
+{
+	char tmpopts[MNT_LINE_MAX];
+	char *f, *opts = tmpopts;
+
+	if (options == NULL || options[0] == '\0')
+		return (B_FALSE);
+
+	(void) strcpy(opts, options);
+	f = mntopt(&opts);
+	for (; *f; f = mntopt(&opts)) {
+		if (strncmp(opt, f, strlen(opt)) == 0) {
+			f += strlen(opt);
+			/* strip any quoting */
+			if (*f == '\"') {
+				++f;
+				f[strlen(f) - 1] = '\0';
+			}
+			(void) strlcpy(buf, f, buflen);
+			return (B_TRUE);
+		}
+	}
+	return (B_FALSE);
+}
 #endif
 
 /*
@@ -277,9 +382,8 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 	char mntopts[MNT_LINE_MAX];
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
 #ifdef __APPLE__
-	struct zfs_mount_args mnt_args;
-	char  path[MAXPATHLEN];
-	FILE *  file;
+	struct zfs_mount_args mnt_args = {0};
+	char  devpath[MAXPATHLEN];
 #endif
 
 	if (options == NULL)
@@ -290,6 +394,18 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint), NULL))
 		return (0);
 
+#ifdef __APPLE__
+	/*
+	 * Check for optional paths
+	 */
+	if (hasoptionalpath(mntopts, "mountdev=", devpath, sizeof (devpath)))
+		mnt_args.mountdev = devpath;
+
+	if (hasoptionalpath(mntopts, "mountpoint=", mountpoint,
+	    sizeof (mountpoint)))
+		goto callmount;
+#endif
+
 	/* Create the directory if it doesn't already exist */
 	if (lstat(mountpoint, &buf) != 0) {
 		if (mkdirp(mountpoint, 0755) != 0) {
@@ -299,15 +415,6 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 			    dgettext(TEXT_DOMAIN, "cannot mount '%s'"),
 			    mountpoint));
 		}
-#ifdef __APPLE__
-		/*
-		 * Create the mount point cookie file.
-		 */
-		snprintf(path, MAXPATHLEN, "%s/%s", mountpoint, MOUNT_POINT_COOKIE);
-		file = fopen( path, "w" );
-		if ( file )
-			fclose( file );
-#endif
 	}
 
 #ifndef __APPLE__
@@ -329,14 +436,26 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 
 	/* perform the mount */
 #ifdef __APPLE__
-	if (options)
-		printf("zfs_mount: unused options: \"%s\"\n", mntopts);
-	mnt_args.fspec = zfs_get_name(zhp);
+callmount:
+	mnt_args.dataset = zfs_get_name(zhp);
+	mnt_args.flags = 0;
+
 	if (mount(MNTTYPE_ZFS, mountpoint, flags, &mnt_args) != 0) {
 #else
 	if (mount(zfs_get_name(zhp), mountpoint, MS_OPTIONSTR | flags,
 	    MNTTYPE_ZFS, NULL, 0, mntopts, sizeof (mntopts)) != 0) {
 #endif
+
+#ifdef __APPLE__
+		/*
+		 * If this was a top-level filesystem, then IOKit
+		 * probing may have already mounted it, causing
+		 * our call to mount() to fail.
+		 */
+		if (zfs_is_mounted(zhp, NULL)) {
+			goto success;
+		}
+#endif       
 		/*
 		 * Generic errors are nasty, but there are just way too many
 		 * from mount(), and they're well-understood.  We pick a few
@@ -357,57 +476,116 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 		    zhp->zfs_name));
 	}
 #ifdef __APPLE__
+success:
 	/*
-	 * For a root file system, add a volume icon.
+	 * Remove any legacy custom volume icons.
 	 */
-	if (strpbrk(mnt_args.fspec, "/") == NULL) {
-		ssize_t  attrsize;
-		u_int16_t finderinfo[16];
+	{
+		char  path[MAXPATHLEN];
 		struct stat sbuf;
 
-		/* Tag the root directory as having a custom icon. */
-		attrsize = getxattr(mountpoint, XATTR_FINDERINFO_NAME, &finderinfo,
-		                    sizeof (finderinfo), 0, 0);
-		if (attrsize != sizeof (finderinfo))
-			(void) memset(&finderinfo, 0, sizeof (finderinfo));
-
-		finderinfo[4] |= OSSwapHostToBigInt16(0x0400);
-
-		(void) setxattr(mountpoint, XATTR_FINDERINFO_NAME, &finderinfo,
-		                sizeof (finderinfo), 0, 0);
-
 		snprintf(path, MAXPATHLEN, "%s/%s", mountpoint, MOUNT_POINT_CUSTOM_ICON);
-		if ((stat(path, &sbuf) != 0 || sbuf.st_size == 0) &&
-		    (stat(CUSTOM_ICON_PATH, &sbuf) == 0 && sbuf.st_size > 0)) {
-			FILE *  srcfile;
-			void * buf;
+		if (stat(path, &sbuf) == 0 &&
+		    sbuf.st_size == 35014 &&
+		    sbuf.st_uid == 0) {
+			/* Clear "has custom icon" flag */
+			(void) removexattr(mountpoint, XATTR_FINDERINFO_NAME, 0);
 
-			srcfile = fopen(CUSTOM_ICON_PATH, "r");
-			file = fopen(path, "w");
-
-			if (srcfile && file) {
-				/* Copy the custom icon to the root directory */
-				buf = malloc(sbuf.st_size);
-				if (fread(buf, 1, sbuf.st_size, srcfile) == sbuf.st_size)
-					(void) fwrite(buf, 1, sbuf.st_size, file);
-				free(buf);
-
-				/* Init the custom icon's Finder Info. */
-				(void) memset(&finderinfo, 0, sizeof (finderinfo));
-				finderinfo[4] = OSSwapHostToBigInt16(0x4000);
-				(void) setxattr(path, XATTR_FINDERINFO_NAME,
-				                &finderinfo, sizeof (finderinfo), 0, 0);
-			}
-			if (srcfile)
-				fclose(srcfile);
-			if (file)
-				fclose(file);
+			/* Clear custom icon file */
+			(void) unlink(path);
 		}
+
 	}
 #endif
-
 	return (0);
 }
+
+#ifdef __APPLE__
+
+/*
+ * When unmounting, we first talk to diskarb and attempt to unmount via that
+ * route. This allows diskarb to tell fsevents, mds, etc. to stop using the
+ * filesystem.
+ *
+ * This code was borrowed from umount(8).
+ */
+
+#include <CoreFoundation/CoreFoundation.h>
+#include <TargetConditionals.h>
+
+#if !TARGET_OS_EMBEDDED && !TARGET_OS_IPHONE
+#include <DiskArbitration/DiskArbitrationPrivate.h>
+
+static void __diskarb_unmount( DADiskRef disk, DADissenterRef dissenter, void * context )
+{
+    *( ( int * ) context ) = dissenter ? DADissenterGetStatus( dissenter ) : 0;
+
+    CFRunLoopStop( CFRunLoopGetCurrent( ) );
+}
+
+int diskarb_unmount( const char * dir, int flags )
+{
+    int status;
+
+    status = -1;
+
+    if ( dir )
+    {
+        DASessionRef session;
+
+        session = DASessionCreate( kCFAllocatorDefault );
+
+        if ( session )
+        {
+            CFURLRef path;
+
+            path = CFURLCreateFromFileSystemRepresentation( kCFAllocatorDefault, ( void * ) dir, strlen( dir ), TRUE );
+
+            if ( path )
+            {
+                DADiskRef disk;
+
+                disk = DADiskCreateFromVolumePath( kCFAllocatorDefault, session, path );
+
+                if ( disk )
+                {
+                    DADiskUnmountOptions options;
+
+                    options = kDADiskUnmountOptionDefault;
+
+                    if ( ( flags & MNT_FORCE ) )
+                    {
+                       options |= kDADiskUnmountOptionForce;
+                    }
+
+                    DASessionScheduleWithRunLoop( session, CFRunLoopGetCurrent( ), kCFRunLoopDefaultMode );
+
+                    DADiskUnmount( disk, options, __diskarb_unmount, &status );
+ 
+                    if ( status == -1 )
+                    {
+                        CFRunLoopRun( );
+                    }
+
+                    status = status ? -1 : 0;
+
+                    DASessionUnscheduleFromRunLoop( session, CFRunLoopGetCurrent( ), kCFRunLoopDefaultMode );
+
+                    CFRelease( disk );
+                }
+
+                CFRelease( path );
+            }
+
+            CFRelease( session );
+        }
+    }
+
+    return status;
+}
+    
+#endif /* !TARGET_OS_EMBEDDED && !TARGET_OS_IPHONE */
+#endif
 
 /*
  * Unmount a single filesystem.
@@ -415,7 +593,19 @@ zfs_mount(zfs_handle_t *zhp, const char *options, int flags)
 static int
 unmount_one(libzfs_handle_t *hdl, const char *mountpoint, int flags)
 {
+#ifdef __APPLE__
+#if !TARGET_OS_EMBEDDED && !TARGET_OS_IPHONE
+	/* First try going through diskarb */
+	if (diskarb_unmount(mountpoint, flags) == 0) {
+		return (0);
+	}
+#endif
+#endif
+#ifdef __APPLE__
 	if (unmount(mountpoint, flags) != 0) {
+#else
+	if (umount2(mountpoint, flags) != 0) {
+#endif
 		zfs_error_aux(hdl, strerror(errno));
 		return (zfs_error_fmt(hdl, EZFS_UMOUNTFAILED,
 		    dgettext(TEXT_DOMAIN, "cannot unmount '%s'"),
@@ -457,12 +647,14 @@ zfs_unmount(zfs_handle_t *zhp, const char *mountpoint, int flags)
 		/*
 		 * Unshare and unmount the filesystem
 		 */
-		if (zfs_unshare_nfs(zhp, mntpt) != 0)
+#ifndef __APPLE__
+		if (zfs_unshare_proto(zhp, mntpt, share_all_proto) != 0)
 			return (-1);
+#endif
 
 		if (unmount_one(zhp->zfs_hdl, mntpt, flags) != 0) {
 			free(mntpt);
-			(void) zfs_share_nfs(zhp);
+			(void) zfs_shareall(zhp);
 			return (-1);
 		}
 		free(mntpt);
@@ -495,19 +687,32 @@ zfs_unmountall(zfs_handle_t *zhp, int flags)
 boolean_t
 zfs_is_shared(zfs_handle_t *zhp)
 {
+	zfs_share_type_t rc = 0;
+#ifndef __APPLE__
+	zfs_share_proto_t *curr_proto;
+
 	if (ZFS_IS_VOLUME(zhp))
 		return (zfs_is_shared_iscsi(zhp));
 
-	return (zfs_is_shared_nfs(zhp, NULL));
+	for (curr_proto = share_all_proto; *curr_proto != PROTO_END;
+	    curr_proto++)
+		rc |= zfs_is_shared_proto(zhp, NULL, *curr_proto);
+#endif
+
+	return (rc ? B_TRUE : B_FALSE);
 }
 
 int
 zfs_share(zfs_handle_t *zhp)
 {
+#ifdef __APPLE__
+	return (0);
+#else
 	if (ZFS_IS_VOLUME(zhp))
 		return (zfs_share_iscsi(zhp));
 
-	return (zfs_share_nfs(zhp));
+	return (zfs_share_proto(zhp, share_all_proto));
+#endif
 }
 
 int
@@ -516,30 +721,45 @@ zfs_unshare(zfs_handle_t *zhp)
 	if (ZFS_IS_VOLUME(zhp))
 		return (zfs_unshare_iscsi(zhp));
 
-	return (zfs_unshare_nfs(zhp, NULL));
+	return (zfs_unshareall(zhp));
 }
 
 /*
  * Check to see if the filesystem is currently shared.
  */
-boolean_t
-zfs_is_shared_nfs(zfs_handle_t *zhp, char **where)
+zfs_share_type_t
+zfs_is_shared_proto(zfs_handle_t *zhp, char **where, zfs_share_proto_t proto)
 {
 	char *mountpoint;
+	zfs_share_type_t rc;
 
 	if (!zfs_is_mounted(zhp, &mountpoint))
-		return (B_FALSE);
+		return (SHARED_NOT_SHARED);
 
-	if (is_shared(zhp->zfs_hdl, mountpoint)) {
+	if (rc = is_shared(zhp->zfs_hdl, mountpoint, proto)) {
 		if (where != NULL)
 			*where = mountpoint;
 		else
 			free(mountpoint);
-		return (B_TRUE);
+		return (rc);
 	} else {
 		free(mountpoint);
-		return (B_FALSE);
+		return (SHARED_NOT_SHARED);
 	}
+}
+
+boolean_t
+zfs_is_shared_nfs(zfs_handle_t *zhp, char **where)
+{
+	return (zfs_is_shared_proto(zhp, where,
+	    PROTO_NFS) != SHARED_NOT_SHARED);
+}
+
+boolean_t
+zfs_is_shared_smb(zfs_handle_t *zhp, char **where)
+{
+	return (zfs_is_shared_proto(zhp, where,
+	    PROTO_SMB) != SHARED_NOT_SHARED);
 }
 
 /*
@@ -555,6 +775,11 @@ static int (*_sa_enable_share)(sa_share_t, char *);
 static int (*_sa_disable_share)(sa_share_t, char *);
 static char *(*_sa_errorstr)(int);
 static int (*_sa_parse_legacy_options)(sa_group_t, char *, char *);
+static boolean_t (*_sa_needs_refresh)(sa_handle_t *);
+static libzfs_handle_t *(*_sa_get_zfs_handle)(sa_handle_t);
+static int (*_sa_zfs_process_share)(sa_handle_t, sa_group_t, sa_share_t,
+    char *, char *, zprop_source_t, char *, char *, char *);
+static void (*_sa_update_sharetab_ts)(sa_handle_t);
 
 /*
  * _zfs_init_libshare()
@@ -593,10 +818,22 @@ _zfs_init_libshare(void)
 		_sa_errorstr = (char *(*)(int))dlsym(libshare, "sa_errorstr");
 		_sa_parse_legacy_options = (int (*)(sa_group_t, char *, char *))
 		    dlsym(libshare, "sa_parse_legacy_options");
+		_sa_needs_refresh = (boolean_t (*)(sa_handle_t *))
+		    dlsym(libshare, "sa_needs_refresh");
+		_sa_get_zfs_handle = (libzfs_handle_t *(*)(sa_handle_t))
+		    dlsym(libshare, "sa_get_zfs_handle");
+		_sa_zfs_process_share = (int (*)(sa_handle_t, sa_group_t,
+		    sa_share_t, char *, char *, zprop_source_t, char *,
+		    char *, char *))dlsym(libshare, "sa_zfs_process_share");
+		_sa_update_sharetab_ts = (void (*)(sa_handle_t))
+		    dlsym(libshare, "sa_update_sharetab_ts");
 		if (_sa_init == NULL || _sa_fini == NULL ||
 		    _sa_find_share == NULL || _sa_enable_share == NULL ||
 		    _sa_disable_share == NULL || _sa_errorstr == NULL ||
-		    _sa_parse_legacy_options == NULL) {
+		    _sa_parse_legacy_options == NULL ||
+		    _sa_needs_refresh == NULL || _sa_get_zfs_handle == NULL ||
+		    _sa_zfs_process_share == NULL ||
+		    _sa_update_sharetab_ts == NULL) {
 			_sa_init = NULL;
 			_sa_fini = NULL;
 			_sa_disable_share = NULL;
@@ -604,6 +841,10 @@ _zfs_init_libshare(void)
 			_sa_errorstr = NULL;
 			_sa_parse_legacy_options = NULL;
 			(void) dlclose(libshare);
+			_sa_needs_refresh = NULL;
+			_sa_get_zfs_handle = NULL;
+			_sa_zfs_process_share = NULL;
+			_sa_update_sharetab_ts = NULL;
 		}
 	}
 }
@@ -616,7 +857,6 @@ _zfs_init_libshare(void)
  * service value is which part(s) of the API to initialize and is a
  * direct map to the libshare sa_init(service) interface.
  */
-
 int
 zfs_init_libshare(libzfs_handle_t *zhandle, int service)
 {
@@ -624,6 +864,23 @@ zfs_init_libshare(libzfs_handle_t *zhandle, int service)
 
 	if (_sa_init == NULL)
 		ret = SA_CONFIG_ERR;
+
+	if (ret == SA_OK && zhandle->libzfs_shareflags & ZFSSHARE_MISS) {
+		/*
+		 * We had a cache miss. Most likely it is a new ZFS
+		 * dataset that was just created. We want to make sure
+		 * so check timestamps to see if a different process
+		 * has updated any of the configuration. If there was
+		 * some non-ZFS change, we need to re-initialize the
+		 * internal cache.
+		 */
+		zhandle->libzfs_shareflags &= ~ZFSSHARE_MISS;
+		if (_sa_needs_refresh != NULL &&
+		    _sa_needs_refresh(zhandle->libzfs_sharehdl)) {
+			zfs_uninit_libshare(zhandle);
+			zhandle->libzfs_sharehdl = _sa_init(service);
+		}
+	}
 
 	if (ret == SA_OK && zhandle && zhandle->libzfs_sharehdl == NULL)
 		zhandle->libzfs_sharehdl = _sa_init(service);
@@ -640,11 +897,9 @@ zfs_init_libshare(libzfs_handle_t *zhandle, int service)
  * Uninitialize the libshare API if it hasn't already been
  * uninitialized. It is OK to call multiple times.
  */
-
 void
 zfs_uninit_libshare(libzfs_handle_t *zhandle)
 {
-
 	if (zhandle != NULL && zhandle->libzfs_sharehdl != NULL) {
 		if (_sa_fini != NULL)
 			_sa_fini(zhandle->libzfs_sharehdl);
@@ -658,17 +913,14 @@ zfs_uninit_libshare(libzfs_handle_t *zhandle)
  * Call the legacy parse interface to get the protocol specific
  * options using the NULL arg to indicate that this is a "parse" only.
  */
-
 int
-zfs_parse_options(char *options, char *proto)
+zfs_parse_options(char *options, zfs_share_proto_t proto)
 {
-	int ret;
-
-	if (_sa_parse_legacy_options != NULL)
-		ret = _sa_parse_legacy_options(NULL, options, proto);
-	else
-		ret = SA_CONFIG_ERR;
-	return (ret);
+	if (_sa_parse_legacy_options != NULL) {
+		return (_sa_parse_legacy_options(NULL, options,
+		    proto_table[proto].p_name));
+	}
+	return (SA_CONFIG_ERR);
 }
 
 /*
@@ -677,7 +929,6 @@ zfs_parse_options(char *options, char *proto)
  * wrapper around sa_find_share to find a share path in the
  * configuration.
  */
-
 static sa_share_t
 zfs_sa_find_share(sa_handle_t handle, char *path)
 {
@@ -692,7 +943,6 @@ zfs_sa_find_share(sa_handle_t handle, char *path)
  * Wrapper for sa_enable_share which enables a share for a specified
  * protocol.
  */
-
 static int
 zfs_sa_enable_share(sa_share_t share, char *proto)
 {
@@ -707,7 +957,6 @@ zfs_sa_enable_share(sa_share_t share, char *proto)
  * Wrapper for sa_enable_share which disables a share for a specified
  * protocol.
  */
-
 static int
 zfs_sa_disable_share(sa_share_t share, char *proto)
 {
@@ -718,80 +967,145 @@ zfs_sa_disable_share(sa_share_t share, char *proto)
 #endif /*!APPLE*/
 
 /*
- * Share the given filesystem according to the options in 'sharenfs'.  We rely
+ * Share the given filesystem according to the options in the specified
+ * protocol specific properties (sharenfs, sharesmb).  We rely
  * on "libshare" to the dirty work for us.
  */
-
-int
-zfs_share_nfs(zfs_handle_t *zhp)
+static int
+zfs_share_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 {
+#ifndef __APPLE__
 	char mountpoint[ZFS_MAXPROPLEN];
 	char shareopts[ZFS_MAXPROPLEN];
+	char sourcestr[ZFS_MAXPROPLEN];
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
-#ifndef __APPLE__
 	sa_share_t share;
-#endif
-
+	zfs_share_proto_t *curr_proto;
+	zprop_source_t sourcetype;
 	int ret;
 
 	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint), NULL))
 		return (0);
 
-	/*
-	 * Return success if there are no share options.
-	 */
-	if (zfs_prop_get(zhp, ZFS_PROP_SHARENFS, shareopts, sizeof (shareopts),
-	    NULL, NULL, 0, B_FALSE) != 0 ||
-	    strcmp(shareopts, "off") == 0)
-		return (0);
-
-#ifndef	__APPLE__
-	/*
-	 * If the 'zoned' property is set, then zfs_is_mountable() will have
-	 * already bailed out if we are in the global zone.  But local
-	 * zones cannot be NFS servers, so we ignore it for local zones as well.
-	 */
-	if (zfs_prop_get_int(zhp, ZFS_PROP_ZONED))
-		return (0);
-
 	if ((ret = zfs_init_libshare(hdl, SA_INIT_SHARE_API)) != SA_OK) {
 		(void) zfs_error_fmt(hdl, EZFS_SHARENFSFAILED,
 		    dgettext(TEXT_DOMAIN, "cannot share '%s': %s"),
-		    zfs_get_name(zhp), _sa_errorstr(ret));
+		    zfs_get_name(zhp), _sa_errorstr != NULL ?
+		    _sa_errorstr(ret) : "");
 		return (-1);
 	}
-	share = zfs_sa_find_share(hdl->libzfs_sharehdl, mountpoint);
-	if (share != NULL) {
-		int err;
-		err = zfs_sa_enable_share(share, "nfs");
-		if (err != SA_OK) {
-			(void) zfs_error_fmt(hdl, EZFS_SHARENFSFAILED,
+
+	for (curr_proto = proto; *curr_proto != PROTO_END; curr_proto++) {
+		/*
+		 * Return success if there are no share options.
+		 */
+		if (zfs_prop_get(zhp, proto_table[*curr_proto].p_prop,
+		    shareopts, sizeof (shareopts), &sourcetype, sourcestr,
+		    ZFS_MAXPROPLEN, B_FALSE) != 0 ||
+		    strcmp(shareopts, "off") == 0)
+			continue;
+
+		/*
+		 * If the 'zoned' property is set, then zfs_is_mountable()
+		 * will have already bailed out if we are in the global zone.
+		 * But local zones cannot be NFS servers, so we ignore it for
+		 * local zones as well.
+		 */
+		if (zfs_prop_get_int(zhp, ZFS_PROP_ZONED))
+			continue;
+
+		share = zfs_sa_find_share(hdl->libzfs_sharehdl, mountpoint);
+		if (share == NULL) {
+			/*
+			 * This may be a new file system that was just
+			 * created so isn't in the internal cache
+			 * (second time through). Rather than
+			 * reloading the entire configuration, we can
+			 * assume ZFS has done the checking and it is
+			 * safe to add this to the internal
+			 * configuration.
+			 */
+			if (_sa_zfs_process_share(hdl->libzfs_sharehdl,
+			    NULL, NULL, mountpoint,
+			    proto_table[*curr_proto].p_name, sourcetype,
+			    shareopts, sourcestr, zhp->zfs_name) != SA_OK) {
+				(void) zfs_error_fmt(hdl,
+				    proto_table[*curr_proto].p_share_err,
+				    dgettext(TEXT_DOMAIN, "cannot share '%s'"),
+				    zfs_get_name(zhp));
+				return (-1);
+			}
+			hdl->libzfs_shareflags |= ZFSSHARE_MISS;
+			share = zfs_sa_find_share(hdl->libzfs_sharehdl,
+			    mountpoint);
+		}
+		if (share != NULL) {
+			int err;
+			err = zfs_sa_enable_share(share,
+			    proto_table[*curr_proto].p_name);
+			if (err != SA_OK) {
+				(void) zfs_error_fmt(hdl,
+				    proto_table[*curr_proto].p_share_err,
+				    dgettext(TEXT_DOMAIN, "cannot share '%s'"),
+				    zfs_get_name(zhp));
+				return (-1);
+			}
+		} else {
+			(void) zfs_error_fmt(hdl,
+			    proto_table[*curr_proto].p_share_err,
 			    dgettext(TEXT_DOMAIN, "cannot share '%s'"),
 			    zfs_get_name(zhp));
 			return (-1);
 		}
-	} else {
-		(void) zfs_error_fmt(hdl, EZFS_SHARENFSFAILED,
-		    dgettext(TEXT_DOMAIN, "cannot share '%s'"),
-		    zfs_get_name(zhp));
-		return (-1);
+
 	}
 #endif /* !__APPLE__ */
 	return (0);
+}
+
+
+int
+zfs_share_nfs(zfs_handle_t *zhp)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_share_proto(zhp, nfs_only));
+#endif
+}
+
+int
+zfs_share_smb(zfs_handle_t *zhp)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_share_proto(zhp, smb_only));
+#endif
+}
+
+int
+zfs_shareall(zfs_handle_t *zhp)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_share_proto(zhp, share_all_proto));
+#endif
 }
 
 /*
  * Unshare a filesystem by mountpoint.
  */
 static int
-unshare_one(libzfs_handle_t *hdl, const char *name, const char *mountpoint)
+unshare_one(libzfs_handle_t *hdl, const char *name, const char *mountpoint,
+    zfs_share_proto_t proto)
 {
 #ifndef __APPLE__
 	sa_share_t share;
-#endif
 	int err;
+#endif
 	char *mntpt;
-
 	/*
 	 * Mountpoint could get trashed if libshare calls getmntany
 	 * which id does during API initialization, so strdup the
@@ -813,7 +1127,7 @@ unshare_one(libzfs_handle_t *hdl, const char *name, const char *mountpoint)
 	free(mntpt);	/* don't need the copy anymore */
 #ifndef __APPLE__
 	if (share != NULL) {
-		err = zfs_sa_disable_share(share, "nfs");
+		err = zfs_sa_disable_share(share, proto_table[proto].p_name);
 		if (err != SA_OK) {
 			return (zfs_error_fmt(hdl, EZFS_UNSHARENFSFAILED,
 			    dgettext(TEXT_DOMAIN, "cannot unshare '%s': %s"),
@@ -832,7 +1146,8 @@ unshare_one(libzfs_handle_t *hdl, const char *name, const char *mountpoint)
  * Unshare the given filesystem.
  */
 int
-zfs_unshare_nfs(zfs_handle_t *zhp, const char *mountpoint)
+zfs_unshare_proto(zfs_handle_t *zhp, const char *mountpoint,
+    zfs_share_proto_t *proto)
 {
 	struct mnttab search = { 0 }, entry;
 	char *mntpt = NULL;
@@ -845,19 +1160,25 @@ zfs_unshare_nfs(zfs_handle_t *zhp, const char *mountpoint)
 	rewind(zhp->zfs_hdl->libzfs_mnttab);
 #endif /*!__APPLE__*/
 	if (mountpoint != NULL)
-		mountpoint = mntpt = zfs_strdup(zhp->zfs_hdl, mountpoint);
+		mntpt = zfs_strdup(zhp->zfs_hdl, mountpoint);
 
 	if (mountpoint != NULL || ((zfs_get_type(zhp) == ZFS_TYPE_FILESYSTEM) &&
 	    getmntany(zhp->zfs_hdl->libzfs_mnttab, &entry, &search) == 0)) {
+		zfs_share_proto_t *curr_proto;
 
 		if (mountpoint == NULL)
-			mountpoint = entry.mnt_mountp;
+			mntpt = zfs_strdup(zhp->zfs_hdl, entry.mnt_mountp);
 
-		if (is_shared(zhp->zfs_hdl, mountpoint) &&
-		    unshare_one(zhp->zfs_hdl, zhp->zfs_name, mountpoint) != 0) {
-			if (mntpt != NULL)
-				free(mntpt);
-			return (-1);
+		for (curr_proto = proto; *curr_proto != PROTO_END;
+		    curr_proto++) {
+
+			if (is_shared(zhp->zfs_hdl, mntpt, *curr_proto) &&
+			    unshare_one(zhp->zfs_hdl, zhp->zfs_name,
+			    mntpt, *curr_proto) != 0) {
+				if (mntpt != NULL)
+					free(mntpt);
+				return (-1);
+			}
 		}
 	}
 	if (mntpt != NULL)
@@ -866,11 +1187,31 @@ zfs_unshare_nfs(zfs_handle_t *zhp, const char *mountpoint)
 	return (0);
 }
 
+int
+zfs_unshare_nfs(zfs_handle_t *zhp, const char *mountpoint)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_unshare_proto(zhp, mountpoint, nfs_only));
+#endif
+}
+
+int
+zfs_unshare_smb(zfs_handle_t *zhp, const char *mountpoint)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_unshare_proto(zhp, mountpoint, smb_only));
+#endif
+}
+
 /*
- * Same as zfs_unmountall(), but for NFS unshares.
+ * Same as zfs_unmountall(), but for NFS and SMB unshares.
  */
 int
-zfs_unshareall_nfs(zfs_handle_t *zhp)
+zfs_unshareall_proto(zfs_handle_t *zhp, zfs_share_proto_t *proto)
 {
 	prop_changelist_t *clp;
 	int ret;
@@ -879,10 +1220,50 @@ zfs_unshareall_nfs(zfs_handle_t *zhp)
 	if (clp == NULL)
 		return (-1);
 
-	ret = changelist_unshare(clp);
+	ret = changelist_unshare(clp, proto);
 	changelist_free(clp);
 
 	return (ret);
+}
+
+int
+zfs_unshareall_nfs(zfs_handle_t *zhp)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_unshareall_proto(zhp, nfs_only));
+#endif
+}
+
+int
+zfs_unshareall_smb(zfs_handle_t *zhp)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_unshareall_proto(zhp, smb_only));
+#endif
+}
+
+int
+zfs_unshareall(zfs_handle_t *zhp)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_unshareall_proto(zhp, share_all_proto));
+#endif
+}
+
+int
+zfs_unshareall_bypath(zfs_handle_t *zhp, const char *mountpoint)
+{
+#ifdef __APPLE__
+	return (0);
+#else
+	return (zfs_unshare_proto(zhp, mountpoint, share_all_proto));
+#endif
 }
 
 /*
@@ -900,30 +1281,20 @@ void
 remove_mountpoint(zfs_handle_t *zhp)
 {
 	char mountpoint[ZFS_MAXPROPLEN];
-	zfs_source_t source;
+	zprop_source_t source;
 
 	if (!zfs_is_mountable(zhp, mountpoint, sizeof (mountpoint),
 	    &source))
 		return;
 
-	if (source == ZFS_SRC_DEFAULT ||
-	    source == ZFS_SRC_INHERITED) {
+	if (source == ZPROP_SRC_DEFAULT ||
+	    source == ZPROP_SRC_INHERITED) {
 		/*
 		 * Try to remove the directory, silently ignoring any errors.
 		 * The filesystem may have since been removed or moved around,
 		 * and this error isn't really useful to the administrator in
 		 * any way.
 		 */
-#ifdef __APPLE__
-		{
-			char  path[MAXPATHLEN];
-			/*
-			 * Remove the mount point cookie file.
-			 */
-			snprintf(path, MAXPATHLEN, "%s/%s", mountpoint, MOUNT_POINT_COOKIE);
-			(void) unlink(path);
-		}
-#endif
 		(void) rmdir(mountpoint);
 	}
 }
@@ -938,7 +1309,7 @@ zfs_is_shared_iscsi(zfs_handle_t *zhp)
 	 * If iscsi deamon isn't running then we aren't shared
 	 */
 	if (iscsitgt_svc_online && iscsitgt_svc_online() == 1)
-		return (0);
+		return (B_FALSE);
 	else
 		return (iscsitgt_zfs_is_shared != NULL &&
 		    iscsitgt_zfs_is_shared(zhp->zfs_name) != 0);
@@ -949,8 +1320,10 @@ int
 zfs_share_iscsi(zfs_handle_t *zhp)
 {
 	char shareopts[ZFS_MAXPROPLEN];
+#ifndef __APPLE__
 	const char *dataset = zhp->zfs_name;
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
+#endif /* !__APPLE__ */
 
 	/*
 	 * Return success if there are no share options.
@@ -974,7 +1347,7 @@ zfs_share_iscsi(zfs_handle_t *zhp)
 
 		return (zfs_error_fmt(hdl, error,
 		    dgettext(TEXT_DOMAIN, "cannot share '%s'"), dataset));
-}
+	}
 #endif /* !__APPLE__ */
 
 	return (0);
@@ -983,13 +1356,15 @@ zfs_share_iscsi(zfs_handle_t *zhp)
 int
 zfs_unshare_iscsi(zfs_handle_t *zhp)
 {
+#ifndef __APPLE__
 	const char *dataset = zfs_get_name(zhp);
 	libzfs_handle_t *hdl = zhp->zfs_hdl;
+#endif /* !__APPLE__ */
 
 	/*
 	 * Return if the volume is not shared
 	 */
-	if (!zfs_is_shared_iscsi(zhp))
+	if (zfs_is_shared_iscsi(zhp) != SHARED_ISCSI)
 		return (0);
 
 #ifndef __APPLE__
@@ -1026,6 +1401,11 @@ mount_cb(zfs_handle_t *zhp, void *data)
 		return (0);
 	}
 
+	if (zfs_prop_get_int(zhp, ZFS_PROP_CANMOUNT) == ZFS_CANMOUNT_NOAUTO) {
+		zfs_close(zhp);
+		return (0);
+	}
+
 	if (cbp->cb_alloc == cbp->cb_used) {
 		void *ptr;
 
@@ -1040,7 +1420,7 @@ mount_cb(zfs_handle_t *zhp, void *data)
 
 	cbp->cb_datasets[cbp->cb_used++] = zhp;
 
-	return (zfs_iter_children(zhp, mount_cb, cbp));
+	return (zfs_iter_filesystems(zhp, mount_cb, cbp));
 }
 
 static int
@@ -1078,7 +1458,9 @@ dataset_cmp(const void *a, const void *b)
  * we have the list of all filesystems, we iterate over them in order and mount
  * and/or share each one.
  */
-//#pragma weak zpool_mount_datasets = zpool_enable_datasets
+#ifndef __APPLE__
+#pragma weak zpool_mount_datasets = zpool_enable_datasets
+#endif
 int
 zpool_enable_datasets(zpool_handle_t *zhp, const char *mntopts, int flags)
 {
@@ -1089,19 +1471,19 @@ zpool_enable_datasets(zpool_handle_t *zhp, const char *mntopts, int flags)
 	int *good;
 
 	/*
-	 * Gather all datasets within the pool.
+	 * Gather all non-snap datasets within the pool.
 	 */
 	if ((cb.cb_datasets = zfs_alloc(hdl, 4 * sizeof (void *))) == NULL)
 		return (-1);
 	cb.cb_alloc = 4;
 
-	if ((zfsp = zfs_open(hdl, zhp->zpool_name, ZFS_TYPE_ANY)) == NULL)
+	if ((zfsp = zfs_open(hdl, zhp->zpool_name, ZFS_TYPE_DATASET)) == NULL)
 		goto out;
 
 	cb.cb_datasets[0] = zfsp;
 	cb.cb_used = 1;
 
-	if (zfs_iter_children(zfsp, mount_cb, &cb) != 0)
+	if (zfs_iter_filesystems(zfsp, mount_cb, &cb) != 0)
 		goto out;
 
 	/*
@@ -1122,15 +1504,13 @@ zpool_enable_datasets(zpool_handle_t *zhp, const char *mntopts, int flags)
 		else
 			good[i] = 1;
 	}
+
 	/*
 	 * Then share all the ones that need to be shared. This needs
 	 * to be a separate pass in order to avoid excessive reloading
 	 * of the configuration. Good should never be NULL since
 	 * zfs_alloc is supposed to exit if memory isn't available.
 	 */
-#ifndef __APPLE__
-	zfs_uninit_libshare(hdl);
-#endif
 	for (i = 0; i < cb.cb_used; i++) {
 		if (good[i] && zfs_share(cb.cb_datasets[i]) != 0)
 			ret = -1;
@@ -1184,7 +1564,9 @@ mountpoint_compare(const void *a, const void *b)
  * arbitrarily (on I/O error, for example).  Instead, we walk /etc/mnttab and
  * gather all the filesystems that are currently mounted.
  */
-//#pragma weak zpool_unmount_datasets = zpool_disable_datasets
+#ifndef __APPLE__
+#pragma weak zpool_unmount_datasets = zpool_disable_datasets
+#endif
 int
 zpool_disable_datasets(zpool_handle_t *zhp, boolean_t force)
 {
@@ -1201,18 +1583,20 @@ zpool_disable_datasets(zpool_handle_t *zhp, boolean_t force)
 	libzfs_handle_t *hdl = zhp->zpool_hdl;
 	int i;
 	int ret = -1;
-	int flags = (force ? MNT_FORCE : 0);
+	int flags = (force ? MS_FORCE : 0);
 
 	/*
 	 * First unshare all zvols.
 	 */
+#ifndef __APPLE__
 	if (zpool_iter_zvol(zhp, zvol_cb, hdl) != 0)
 		return (-1);
+#endif
 
 	namelen = strlen(zhp->zpool_name);
 
 #ifdef __APPLE__
-	if ((nitems = getmntinfo(&sfsp, MNT_WAIT)) == 0) {
+	if ((nitems = getmountinfo(&sfsp, MNT_WAIT)) == 0) {
 		return (ret);
 	}
 	used = alloc = 0;
@@ -1358,11 +1742,18 @@ zpool_disable_datasets(zpool_handle_t *zhp, boolean_t force)
 	/*
 	 * Walk through and first unshare everything.
 	 */
+#ifndef __APPLE__
 	for (i = 0; i < used; i++) {
-		if (is_shared(hdl, mountpoints[i]) &&
-		    unshare_one(hdl, mountpoints[i], mountpoints[i]) != 0)
-			goto out;
+		zfs_share_proto_t *curr_proto;
+		for (curr_proto = share_all_proto; *curr_proto != PROTO_END;
+		    curr_proto++) {
+			if (is_shared(hdl, mountpoints[i], *curr_proto) &&
+			    unshare_one(hdl, mountpoints[i],
+			    mountpoints[i], *curr_proto) != 0)
+				goto out;
+		}
 	}
+#endif
 
 	/*
 	 * Now unmount everything, removing the underlying directories as
@@ -1398,7 +1789,7 @@ getmntany(FILE *fp, struct mnttab *mgetp, struct mnttab *mrefp)
 	struct statfs *sfsp;
 	int nitems;
 
-	nitems = getmntinfo(&sfsp, MNT_WAIT);
+	nitems = getmountinfo(&sfsp, MNT_WAIT);
 	
 	while (nitems-- > 0) {
 		if (strcmp(mrefp->mnt_fstype, sfsp->f_fstypename) == 0 &&

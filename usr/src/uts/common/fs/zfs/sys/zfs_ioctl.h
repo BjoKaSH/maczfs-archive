@@ -19,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ *
+ * Portions Copyright 2009 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -35,6 +36,10 @@
 #include <sys/zio.h>
 #include <sys/dsl_deleg.h>
 
+#ifdef _KERNEL
+#include <sys/nvpair.h>
+#endif	/* _KERNEL */
+
 #ifdef	__cplusplus
 extern "C" {
 #endif
@@ -45,8 +50,12 @@ extern "C" {
 #define	ZFS_SNAPDIR_HIDDEN		0
 #define	ZFS_SNAPDIR_VISIBLE		1
 
-#define	DMU_BACKUP_VERSION (1ULL)
+#define	DMU_BACKUP_STREAM_VERSION (1ULL)
+#define	DMU_BACKUP_HEADER_VERSION (2ULL)
 #define	DMU_BACKUP_MAGIC 0x2F5bacbacULL
+
+#define	DRR_FLAG_CLONE		(1<<0)
+#define	DRR_FLAG_CI_DATA	(1<<1)
 
 /*
  * zfs ioctl command structure
@@ -56,14 +65,14 @@ typedef struct dmu_replay_record {
 		DRR_BEGIN, DRR_OBJECT, DRR_FREEOBJECTS,
 		DRR_WRITE, DRR_FREE, DRR_END,
 	} drr_type;
-	uint32_t drr_pad;
+	uint32_t drr_payloadlen;
 	union {
 		struct drr_begin {
 			uint64_t drr_magic;
 			uint64_t drr_version;
 			uint64_t drr_creation_time;
 			dmu_objset_type_t drr_type;
-			uint32_t drr_pad;
+			uint32_t drr_flags;
 			uint64_t drr_toguid;
 			uint64_t drr_fromguid;
 			char drr_toname[MAXNAMELEN];
@@ -126,18 +135,35 @@ typedef struct zfs_share {
 	uint64_t	z_sharemax;  /* max length of share string */
 } zfs_share_t;
 
+/*
+ * ZFS file systems may behave the usual, POSIX-compliant way, where
+ * name lookups are case-sensitive.  They may also be set up so that
+ * all the name lookups are case-insensitive, or so that only some
+ * lookups, the ones that set an FIGNORECASE flag, are case-insensitive.
+ *
+ * Note: OS X currently doesn't support ZFS_CASE_MIXED mode
+ */
+typedef enum zfs_case {
+	ZFS_CASE_SENSITIVE,
+	ZFS_CASE_INSENSITIVE,
+	ZFS_CASE_MIXED
+} zfs_case_t;
+
 typedef struct zfs_cmd {
 	char		zc_name[MAXPATHLEN];
 	char		zc_value[MAXPATHLEN * 2];
+	char		zc_string[MAXNAMELEN];
 	uint64_t	zc_guid;
-	uint64_t	zc_nvlist_src;	/* really (char *) */
+	uint64_t	zc_nvlist_conf;		/* really (char *) */
+	uint64_t	zc_nvlist_conf_size;
+	uint64_t	zc_nvlist_src;		/* really (char *) */
 	uint64_t	zc_nvlist_src_size;
-	uint64_t	zc_nvlist_dst;	/* really (char *) */
+	uint64_t	zc_nvlist_dst;		/* really (char *) */
 	uint64_t	zc_nvlist_dst_size;
 	uint64_t	zc_cookie;
 	uint64_t	zc_objset_type;
 	uint64_t	zc_perm_action;
-	uint64_t 	zc_history;	/* really (char *) */
+	uint64_t 	zc_history;		/* really (char *) */
 	uint64_t 	zc_history_len;
 	uint64_t	zc_history_offset;
 	uint64_t	zc_obj;
@@ -146,15 +172,28 @@ typedef struct zfs_cmd {
 	struct drr_begin zc_begin_record;
 	zinject_record_t zc_inject_record;
 #ifdef __APPLE__ 
-	int		zc_ioc_error; /* ioctl error value */
-	uint64_t	zc_dev;	     /* OSX doesn't have ddi_driver_major*/ 
+	int		zc_ioc_error;	/* ioctl error value */
+	uint64_t	zc_dev;		/* OSX doesn't have ddi_driver_major */ 
 #endif
 } zfs_cmd_t;
+
+#ifdef __APPLE__
+/* Let zfs.h know that zfs_cmd_t is now defined */
+#define _ZFS_CMD_TYPE
+#endif
 
 #define	ZVOL_MAX_MINOR	(1 << 16)
 #define	ZFS_MIN_MINOR	(ZVOL_MAX_MINOR + 1)
 
 #ifdef _KERNEL
+
+typedef struct zfs_creat {
+	nvlist_t	*zct_zplprops;
+	nvlist_t	*zct_props;
+#ifdef __APPLE__
+	boolean_t	subfilesystem;
+#endif
+} zfs_creat_t;
 
 extern dev_info_t *zfs_dip;
 
@@ -171,4 +210,11 @@ extern int zfs_unmount_snap(char *, void *);
 }
 #endif
 
+#ifdef	__APPLE__
+/* retry defining zfs_ioc_t if it was requested before this file was in scope */
+#if defined(_SYS_FS_ZFS_H) && !defined(_KERNEL) && !defined(_ZFS_IOC_TYPE)
+#include <sys/fs/zfs.h>
+#endif /* __APPLE__ */
+
+#endif
 #endif	/* _SYS_ZFS_IOCTL_H */

@@ -25,38 +25,23 @@
  * Use is subject to license terms.
  */
 
+/*
+ * Portions copyright (c) 2009 Apple Inc. All rights reserved.
+ */
+
 #ifndef _SYS_PATHNAME_H
 #define	_SYS_PATHNAME_H
 
-#include <sys/types.h>
+#include <sys/zfs_vnode.h>
+#include <sys/cred.h>
+#include <sys/uio.h>
+#include <sys/dirent.h>
 
-#ifdef	__cplusplus
-extern "C" {
-#endif
-
-/*
- * Pathname structure.
- * System calls that operate on path names gather the path name
- * from the system call into this structure and reduce it by
- * peeling off translated components.  If a symbolic link is
- * encountered the new path name to be translated is also
- * assembled in this structure.
- *
- * By convention pn_buf is not changed once it's been set to point
- * to the underlying storage; routines which manipulate the pathname
- * do so by changing pn_path and pn_pathlen.  pn_pathlen is redundant
- * since the path name is null-terminated, but is provided to make
- * some computations faster.
- */
 typedef struct pathname {
-	char	*pn_buf;		/* underlying storage */
-	char	*pn_path;		/* remaining pathname */
-	size_t	pn_pathlen;		/* remaining length */
-	size_t	pn_bufsize;		/* total size of pn_buf */
+	char	*pn_buf;
+	char	*pn_path;
+	size_t	pn_pathlen;
+	size_t	pn_bufsize;
 } pathname_t;
-
-#ifdef	__cplusplus
-}
-#endif
 
 #endif	/* _SYS_PATHNAME_H */

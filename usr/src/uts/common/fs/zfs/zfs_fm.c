@@ -19,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ */
+/* Portions Copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -33,8 +34,8 @@
 #include <sys/vdev_impl.h>
 #include <sys/zio.h>
 
-#ifndef __APPLE__
 #include <sys/fm/fs/zfs.h>
+#ifndef __APPLE__
 #include <sys/fm/protocol.h>
 #include <sys/fm/util.h>
 #include <sys/sysevent.h>
@@ -52,7 +53,7 @@
  * 	pool			X
  *
  * If we are in a loading state, all errors are chained together by the same
- * SPA-wide ENA.
+ * SPA-wide ENA (Error Numeric Association).
  *
  * For isolated I/O requests, we get the ENA from the zio_t. The propagation
  * gets very complicated due to RAID-Z, gang blocks, and vdev caching.  We want
@@ -103,6 +104,7 @@ zfs_ereport_post(const char *subclass, spa_t *spa, vdev_t *vd, zio_t *zio,
 	nvlist_t *ereport, *detector;
 	uint64_t ena;
 	char class[64];
+	int state;
 
 	/*
 	 * If we are doing a spa_tryimport(), ignore errors.
@@ -119,22 +121,42 @@ zfs_ereport_post(const char *subclass, spa_t *spa, vdev_t *vd, zio_t *zio,
 	    spa->spa_last_open_failed)
 		return;
 
-	/*
-	 * Ignore any errors from I/Os that we are going to retry anyway - we
-	 * only generate errors from the final failure.  Checksum errors are
-	 * generated after the pipeline stage responsible for retrying the I/O
-	 * (VDEV_IO_ASSESS), so this only applies to standard I/O errors.
-	 */
-	if (zio && zio_should_retry(zio) && zio->io_error != ECKSUM)
-		return;
+	if (zio != NULL) {
+		/*
+		 * Ignore any errors from I/Os that we are going to retry
+		 * anyway - we only generate errors from the final failure.
+		 * Checksum errors are generated after the pipeline stage
+		 * responsible for retrying the I/O (VDEV_IO_ASSESS), so this
+		 * only applies to standard I/O errors.
+		 */
+		if (zio_should_retry(zio) && zio->io_error != ECKSUM)
+			return;
 
-	/*
-	 * If this is not a read or write zio, ignore the error.  This can occur
-	 * if the DKIOCFLUSHWRITECACHE ioctl fails.
-	 */
-	if (zio && zio->io_type != ZIO_TYPE_READ &&
-	    zio->io_type != ZIO_TYPE_WRITE)
-		return;
+		/*
+		 * If this is not a read or write zio, ignore the error.  This
+		 * can occur if the DKIOCFLUSHWRITECACHE ioctl fails.
+		 */
+		if (zio->io_type != ZIO_TYPE_READ &&
+		    zio->io_type != ZIO_TYPE_WRITE)
+			return;
+
+		/*
+		 * Ignore any errors from speculative I/Os, as failure is an
+		 * expected result.
+		 */
+		if (zio->io_flags & ZIO_FLAG_SPECULATIVE)
+			return;
+
+		/*
+		 * If the vdev has already been marked as failing due to a
+		 * failed probe, then ignore any subsequent I/O errors, as the
+		 * DE will automatically fault the vdev on the first such
+		 * failure.
+		 */
+		if (vd != NULL && vd->vdev_is_failing &&
+		    strcmp(subclass, FM_EREPORT_ZFS_PROBE_FAILURE) != 0)
+			return;
+	}
 
 	if ((ereport = fm_nvlist_create(NULL)) == NULL)
 		return;
@@ -184,6 +206,14 @@ zfs_ereport_post(const char *subclass, spa_t *spa, vdev_t *vd, zio_t *zio,
 	 */
 
 	/*
+	 * If we are importing a faulted pool, then we treat it like an open,
+	 * not an import.  Otherwise, the DE will ignore all faults during
+	 * import, since the default behavior is to mark the devices as
+	 * persistently unavailable, not leave them in the faulted state.
+	 */
+	state = spa->spa_import_faulted ? SPA_LOAD_OPEN : spa->spa_load_state;
+
+	/*
 	 * Generic payload members common to all ereports.
 	 *
 	 * The direct reference to spa_name is used rather than spa_name()
@@ -199,7 +229,17 @@ zfs_ereport_post(const char *subclass, spa_t *spa, vdev_t *vd, zio_t *zio,
 	    DATA_TYPE_STRING, spa->spa_name, FM_EREPORT_PAYLOAD_ZFS_POOL_GUID,
 	    DATA_TYPE_UINT64, spa_guid(spa),
 	    FM_EREPORT_PAYLOAD_ZFS_POOL_CONTEXT, DATA_TYPE_INT32,
-	    spa->spa_load_state, NULL);
+	    state, NULL);
+
+	if (spa != NULL) {
+		fm_payload_set(ereport, FM_EREPORT_PAYLOAD_ZFS_POOL_FAILMODE,
+		    DATA_TYPE_STRING,
+		    spa_get_failmode(spa) == ZIO_FAILURE_MODE_WAIT ?
+		    FM_EREPORT_FAILMODE_WAIT :
+		    spa_get_failmode(spa) == ZIO_FAILURE_MODE_CONTINUE ?
+		    FM_EREPORT_FAILMODE_CONTINUE : FM_EREPORT_FAILMODE_PANIC,
+		    NULL);
+	}
 
 	if (vd != NULL) {
 		vdev_t *pvd = vd->vdev_parent;
@@ -267,6 +307,9 @@ zfs_ereport_post(const char *subclass, spa_t *spa, vdev_t *vd, zio_t *zio,
 		 */
 		if (zio->io_logical != NULL)
 			fm_payload_set(ereport,
+			    FM_EREPORT_PAYLOAD_ZFS_ZIO_OBJSET,
+			    DATA_TYPE_UINT64,
+			    zio->io_logical->io_bookmark.zb_objset,
 			    FM_EREPORT_PAYLOAD_ZFS_ZIO_OBJECT,
 			    DATA_TYPE_UINT64,
 			    zio->io_logical->io_bookmark.zb_object,
@@ -322,19 +365,6 @@ zfs_post_common(spa_t *spa, vdev_t *vd, const char *name)
 }
 
 /*
- * The 'resource.fs.zfs.ok' event is an internal signal that the associated
- * resource (pool or disk) has been identified by ZFS as healthy.  This will
- * then trigger the DE to close the associated case, if any.
- */
-void
-zfs_post_ok(spa_t *spa, vdev_t *vd)
-{
-#ifndef __APPLE__
-	zfs_post_common(spa, vd, FM_RESOURCE_OK);
-#endif
-}
-
-/*
  * The 'resource.fs.zfs.removed' event is an internal signal that the given vdev
  * has been removed from the system.  This will cause the DE to ignore any
  * recent I/O errors, inferring that they are due to the asynchronous device
@@ -343,9 +373,7 @@ zfs_post_ok(spa_t *spa, vdev_t *vd)
 void
 zfs_post_remove(spa_t *spa, vdev_t *vd)
 {
-#ifndef __APPLE__
 	zfs_post_common(spa, vd, FM_RESOURCE_REMOVED);
-#endif
 }
 
 /*
@@ -356,7 +384,5 @@ zfs_post_remove(spa_t *spa, vdev_t *vd)
 void
 zfs_post_autoreplace(spa_t *spa, vdev_t *vd)
 {
-#ifndef __APPLE__
 	zfs_post_common(spa, vd, FM_RESOURCE_AUTOREPLACE);
-#endif
 }

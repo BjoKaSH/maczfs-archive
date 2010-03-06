@@ -59,6 +59,9 @@ void kprintf(const char *fmt, ...);
 			kprintf(fmt, ##args);        \
 	} while(0)
 
+
+#define vcmn_err(ce, fmt, args...)	panic(fmt, ##args)
+
 #endif /* _KERNEL */
 
 #ifdef	__cplusplus

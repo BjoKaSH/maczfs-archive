@@ -20,8 +20,9 @@
  */
 
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ *
  * Portions Copyright 2007 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
@@ -232,7 +233,6 @@ spa_history_log_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	}
 #endif
 
-	/* construct a nvlist of the current time and cmd string */
 	VERIFY(nvlist_alloc(&nvrecord, NV_UNIQUE_NAME, KM_SLEEP) == 0);
 	VERIFY(nvlist_add_uint64(nvrecord, ZPOOL_HIST_TIME,
 	    gethrestime_sec()) == 0);
@@ -404,6 +404,13 @@ spa_history_internal_log(history_internal_events_t event, spa_t *spa,
 	history_arg_t *hap;
 	char *str;
 	va_list adx;
+
+	/*
+	 * If this is part of creating a pool, not everything is
+	 * initialized yet, so don't bother logging the internal events.
+	 */
+	if (tx->tx_txg == TXG_INITIAL)
+		return;
 
 	hap = kmem_alloc(sizeof (history_arg_t), KM_SLEEP);
 	str = kmem_alloc(HIS_MAX_RECORD_LEN, KM_SLEEP);

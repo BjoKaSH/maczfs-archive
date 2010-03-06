@@ -26,6 +26,10 @@
  * Use is subject to license terms.
  */
 
+/*
+ * Portions copyright 2008 Apple Inc. All rights reserved.
+ */
+
 #ifndef	_SYS_THREAD_H
 #define	_SYS_THREAD_H
 

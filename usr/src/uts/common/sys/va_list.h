@@ -19,20 +19,23 @@
  *
  * CDDL HEADER END
  */
-/*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved	*/
+/*      Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T */
+/*        All Rights Reserved   */
 
 
 /*
  * Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ */
+/*
+ * Portions copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
 #ifndef	_SYS_VA_LIST_H
 #define	_SYS_VA_LIST_H
 
+#include <sys/isa_defs.h>
 #include <stdarg.h> 
 
 typedef va_list __va_list;

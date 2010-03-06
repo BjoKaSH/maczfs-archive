@@ -23,8 +23,8 @@
  * Use is subject to license terms.
  */
 
-/*	Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989 AT&T	*/
-/*	  All Rights Reserved  	*/
+/*      Copyright (c) 1983, 1984, 1985, 1986, 1987, 1988, 1989 AT&T     */
+/*        All Rights Reserved   */
 
 /*
  * Portions of this source code were derived from Berkeley 4.3 BSD
@@ -33,15 +33,37 @@
  * Use is subject to license terms.
  */
 
+/*
+ * Portions copyright (c) 2009 Apple Inc. All rights reserved.
+ */
+
 #ifndef _SYS_VFS_H
 #define	_SYS_VFS_H
 
 /*
- * In Darwin, VFS is defined by "sys/mount.h"
+ * In OS X, VFS KPI definitions reside in "sys/mount.h"
  */
-#include <sys/mount.h>
+#include <sys/types.h>
+#include <sys/zfs_buf.h>
+#include <sys/cred.h>
+#include <sys/zfs_mount.h>
+#include <sys/stat.h>
+#include <sys/zfs_vnode.h>
+
+#ifdef	__cplusplus
+extern "C" {
+#endif
+
+typedef struct fid {
+	ushort_t len;
+	char	data[64];
+} fid_t;
 
 typedef struct mount vfs_t;
+
+#define VT_ZFS 17
+
+#define	VNFS_ADDFSREF	0x04	/* take fs (named) reference */
 
 #define LK_NOWAIT	0x00000010	/* do not sleep to await lock */
 
@@ -49,9 +71,33 @@ typedef struct mount vfs_t;
 
 #define vn_vfsunlock(vp)  
 
-#define	VFS_HOLD(vfsp)
 
+/*
+ * Note that we DO NOT want to map these to vfs_busy() and vfs_unbusy()
+ * since those are meant to be temporary holds, not long term references.
+ */
+#define	VFS_HOLD(vfsp)
 #define	VFS_RELE(vfsp)
 
+extern int  VFS_ROOT(struct mount *, struct vnode **);
+
+typedef enum vtype vtype_t;
+
+/*
+ * Root directory vnode for the system a.k.a. '/'
+ *
+ * Note: vfs_rootvnode() acquires a reference and vnode_put() releases it
+ */
+static inline vnode_t *getrootdir() { 
+	vnode_t *rvnode = vfs_rootvnode(); 
+	if (rvnode)
+		vnode_put(rvnode);
+	return rvnode; 
+}
+
+
+#ifdef	__cplusplus
+}
+#endif
 
 #endif	/* _SYS_VFS_H */

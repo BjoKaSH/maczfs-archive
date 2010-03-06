@@ -25,9 +25,46 @@
  * Use is subject to license terms.
  */
 
-#ifndef _SYS_ZMOD_H
+
+/*
+ * Portions copyright (c) 2009 Apple Inc. All rights reserved.
+ */
+
+#ifndef	_SYS_ZMOD_H
 #define	_SYS_ZMOD_H
 
-/* This header file intentionally left blank */
+#ifdef _KERNEL
+/* Grab the kernel zlib implementation interfaces */
+#include <libkern/zlib.h>
+#else
+#define	Z_OK	0
+#endif
 
-#endif /* _SYS_ZMOD_H */
+#ifdef	__cplusplus
+extern "C" {
+#endif
+
+#ifdef _KERNEL
+
+extern int z_uncompress(void *, size_t *, const void *, size_t);
+extern int z_compress(void *, size_t *, const void *, size_t);
+extern int z_compress_level(void *, size_t *, const void *, size_t, int);
+extern const char *z_strerror(int);
+
+extern size_t gzip_compress(void *, void *, size_t, size_t, int);
+extern int gzip_decompress(void *, void *, size_t, size_t, int);
+
+#else
+
+/* XXX we need an implementation for ztest... */
+#define	z_uncompress(dst,dstlen,src,srclen)		(-1)
+#define	z_compress_level(dst,dstlen,src,srclen,level)	(-1)
+#define	z_compress(dst, dstlen, src, srclen)		(-1)
+
+#endif
+
+#ifdef	__cplusplus
+}
+#endif
+
+#endif	/* _SYS_ZMOD_H */

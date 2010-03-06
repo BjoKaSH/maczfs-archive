@@ -20,7 +20,10 @@
  */
 
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
+ *
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -107,6 +110,10 @@ enum zio_compress {
 #define	ZIO_COMPRESS_ON_VALUE	ZIO_COMPRESS_LZJB
 #define	ZIO_COMPRESS_DEFAULT	ZIO_COMPRESS_OFF
 
+#define	ZIO_FAILURE_MODE_WAIT		0
+#define	ZIO_FAILURE_MODE_CONTINUE	1
+#define	ZIO_FAILURE_MODE_PANIC		2
+
 #define	ZIO_PRIORITY_NOW		(zio_priority_table[0])
 #define	ZIO_PRIORITY_SYNC_READ		(zio_priority_table[1])
 #define	ZIO_PRIORITY_SYNC_WRITE		(zio_priority_table[2])
@@ -142,30 +149,67 @@ enum zio_compress {
 
 #define	ZIO_FLAG_NOBOOKMARK		0x10000
 #define	ZIO_FLAG_USER			0x20000
-
 #define	ZIO_FLAG_METADATA		0x40000
+#define	ZIO_FLAG_WRITE_RETRY		0x80000
 
+#ifdef __APPLE__
+#define ZIO_FLAG_FUA			0x100000  /* Forced Unit Access */
+#endif
+
+#ifdef __APPLE__
 #define	ZIO_FLAG_GANG_INHERIT		\
 	(ZIO_FLAG_CANFAIL |		\
 	ZIO_FLAG_FAILFAST |		\
 	ZIO_FLAG_CONFIG_HELD |		\
+	ZIO_FLAG_DONT_CACHE |		\
 	ZIO_FLAG_DONT_RETRY |		\
 	ZIO_FLAG_IO_REPAIR |		\
 	ZIO_FLAG_SPECULATIVE |		\
 	ZIO_FLAG_RESILVER |		\
 	ZIO_FLAG_SCRUB |		\
-	ZIO_FLAG_SCRUB_THREAD)
+	ZIO_FLAG_SCRUB_THREAD |		\
+	ZIO_FLAG_USER | 		\
+	ZIO_FLAG_METADATA |		\
+	ZIO_FLAG_FUA)
+
+#else /* Open Solaris */
+
+#define	ZIO_FLAG_GANG_INHERIT		\
+	(ZIO_FLAG_CANFAIL |		\
+	ZIO_FLAG_FAILFAST |		\
+	ZIO_FLAG_CONFIG_HELD |		\
+	ZIO_FLAG_DONT_CACHE |		\
+	ZIO_FLAG_DONT_RETRY |		\
+	ZIO_FLAG_IO_REPAIR |		\
+	ZIO_FLAG_SPECULATIVE |		\
+	ZIO_FLAG_RESILVER |		\
+	ZIO_FLAG_SCRUB |		\
+	ZIO_FLAG_SCRUB_THREAD |		\
+	ZIO_FLAG_USER | 		\
+	ZIO_FLAG_METADATA)
+
+#endif /* __APPLE__ */
 
 #define	ZIO_FLAG_VDEV_INHERIT		\
 	(ZIO_FLAG_GANG_INHERIT |	\
-	ZIO_FLAG_DONT_CACHE |		\
 	ZIO_FLAG_PHYSICAL)
 
+#define	ZIO_FLAG_RETRY_INHERIT		\
+	(ZIO_FLAG_VDEV_INHERIT |	\
+	ZIO_FLAG_CONFIG_GRABBED |	\
+	ZIO_FLAG_DONT_PROPAGATE |	\
+	ZIO_FLAG_NOBOOKMARK)
+
+
+#define	ZIO_PIPELINE_CONTINUE		0x100
+#define	ZIO_PIPELINE_STOP		0x101
+
 /*
- * We'll take the unused errno 'EBADE' (from the Convergent graveyard)
- * to indicate checksum errors.
+ * We'll take the unused errnos, 'EBADE' and 'EBADR' (from the Convergent
+ * graveyard) to indicate checksum errors and fragmentation.
  */
 #define	ECKSUM	EBADE
+#define	EFRAGS	EBADR
 
 typedef struct zio zio_t;
 typedef void zio_done_func_t(zio_t *zio);
@@ -200,6 +244,10 @@ typedef struct zbookmark {
 	uint64_t	zb_blkid;
 } zbookmark_t;
 
+#ifdef __APPLE__
+typedef struct uplinfo uplinfo_t;
+#endif
+
 struct zio {
 	/* Core information about this I/O */
 	zio_t		*io_parent;
@@ -217,6 +265,7 @@ struct zio {
 	zio_t		*io_sibling_next;
 	zio_transform_t *io_transform_stack;
 	zio_t		*io_logical;
+	list_node_t	zio_link_node;
 
 	/* Callback info */
 	zio_done_func_t	*io_ready;
@@ -227,9 +276,14 @@ struct zio {
 	/* Data represented by this I/O */
 	void		*io_data;
 	uint64_t	io_size;
+#ifdef __APPLE__
+	uplinfo_t	*io_uplinfo;
+#endif
 
 	/* Stuff for the vdev stack */
 	vdev_t		*io_vd;
+	vdev_t		**io_failed_vds;
+	uint64_t	io_failed_vds_count;
 	void		*io_vsd;
 	uint64_t	io_offset;
 	uint64_t	io_deadline;
@@ -242,8 +296,10 @@ struct zio {
 
 	/* Internal pipeline state */
 	int		io_flags;
+	int		io_orig_flags;
 	enum zio_type	io_type;
 	enum zio_stage	io_stage;
+	enum zio_stage	io_orig_stage;
 	uint8_t		io_stalled;
 	uint8_t		io_priority;
 	struct dk_callback io_dk_callback;
@@ -252,7 +308,7 @@ struct zio {
 	int		io_error;
 	uint32_t	io_numerrors;
 	uint32_t	io_pipeline;
-	uint32_t	io_async_stages;
+	uint32_t	io_orig_pipeline;
 	uint64_t	io_children_notready;
 	uint64_t	io_children_notdone;
 	void		*io_waiter;
@@ -269,19 +325,33 @@ extern zio_t *zio_null(zio_t *pio, spa_t *spa,
 extern zio_t *zio_root(spa_t *spa,
     zio_done_func_t *done, void *private, int flags);
 
-extern zio_t *zio_read(zio_t *pio, spa_t *spa, blkptr_t *bp, void *data,
-    uint64_t size, zio_done_func_t *done, void *private,
-    int priority, int flags, zbookmark_t *zb);
+#ifdef __APPLE_KERNEL__
+#define zio_read(pio, spa, bp, data, size, done, private, priority, flags, zb) \
+	zio_read_osx(pio, spa, bp, data, size, done, private, priority, flags, \
+	zb, NULL)
+
+extern zio_t *zio_read_osx(zio_t *pio, spa_t *spa, const blkptr_t *bp,
+    void *data, uint64_t size, zio_done_func_t *done, void *private,
+    int priority, int flags, const zbookmark_t *zb, uplinfo_t *upli);
 
 extern zio_t *zio_write(zio_t *pio, spa_t *spa, int checksum, int compress,
     int ncopies, uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
     zio_done_func_t *ready, zio_done_func_t *done, void *private, int priority,
-    int flags, zbookmark_t *zb);
+    int flags, const zbookmark_t *zb, uplinfo_t *upli);
+#else
+extern zio_t *zio_read(zio_t *pio, spa_t *spa, const blkptr_t *bp, void *data,
+    uint64_t size, zio_done_func_t *done, void *private,
+    int priority, int flags, const zbookmark_t *zb);
 
-extern zio_t *zio_rewrite(zio_t *pio, spa_t *spa, int checksum,
-    uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
-    zio_done_func_t *done, void *private, int priority, int flags,
-    zbookmark_t *zb);
+extern zio_t *zio_write(zio_t *pio, spa_t *spa, int checksum, int compress,
+    int ncopies, uint64_t txg, blkptr_t *bp, void *data, uint64_t size,
+    zio_done_func_t *ready, zio_done_func_t *done, void *private, int priority,
+    int flags, const zbookmark_t *zb);
+#endif /* __APPLE__ */
+
+extern zio_t *zio_rewrite(zio_t *pio, spa_t *spa, int checksum, blkptr_t *bp,
+    void *data, uint64_t size, zio_done_func_t *done, void *private,
+    int priority, int flags, zbookmark_t *zb);
 
 extern zio_t *zio_free(zio_t *pio, spa_t *spa, uint64_t txg, blkptr_t *bp,
     zio_done_func_t *done, void *private);
@@ -294,33 +364,33 @@ extern zio_t *zio_ioctl(zio_t *pio, spa_t *spa, vdev_t *vd, int cmd,
 
 extern zio_t *zio_read_phys(zio_t *pio, vdev_t *vd, uint64_t offset,
     uint64_t size, void *data, int checksum,
-    zio_done_func_t *done, void *private, int priority, int flags);
+    zio_done_func_t *done, void *private, int priority, int flags,
+    boolean_t labels);
 
 extern zio_t *zio_write_phys(zio_t *pio, vdev_t *vd, uint64_t offset,
     uint64_t size, void *data, int checksum,
-    zio_done_func_t *done, void *private, int priority, int flags);
+    zio_done_func_t *done, void *private, int priority, int flags,
+    boolean_t labels);
 
 extern int zio_alloc_blk(spa_t *spa, uint64_t size, blkptr_t *new_bp,
     blkptr_t *old_bp, uint64_t txg);
 extern void zio_free_blk(spa_t *spa, blkptr_t *bp, uint64_t txg);
-extern void zio_flush_vdev(spa_t *spa, uint64_t vdev, zio_t **zio);
+extern void zio_flush(zio_t *zio, vdev_t *vd);
 
 extern int zio_wait(zio_t *zio);
 extern void zio_nowait(zio_t *zio);
+extern void zio_execute(zio_t *zio);
+extern void zio_interrupt(zio_t *zio);
+
+extern int zio_wait_for_children_ready(zio_t *zio);
+extern int zio_wait_for_children_done(zio_t *zio);
 
 extern void *zio_buf_alloc(size_t size);
 extern void zio_buf_free(void *buf, size_t size);
 extern void *zio_data_buf_alloc(size_t size);
 extern void zio_data_buf_free(void *buf, size_t size);
 
-/*
- * Move an I/O to the next stage of the pipeline and execute that stage.
- * There's no locking on io_stage because there's no legitimate way for
- * multiple threads to be attempting to process the same I/O.
- */
-extern void zio_next_stage(zio_t *zio);
-extern void zio_next_stage_async(zio_t *zio);
-extern void zio_wait_children_done(zio_t *zio);
+extern void zio_resubmit_stage_async(void *);
 
 /*
  * Delegate I/O to a child vdev.
@@ -339,7 +409,8 @@ extern void zio_set_gang_verifier(zio_t *zio, zio_cksum_t *zcp);
 extern uint8_t zio_checksum_select(uint8_t child, uint8_t parent);
 extern uint8_t zio_compress_select(uint8_t child, uint8_t parent);
 
-boolean_t zio_should_retry(zio_t *zio);
+extern boolean_t zio_should_retry(zio_t *zio);
+extern int zio_vdev_resume_io(spa_t *);
 
 /*
  * Initial setup and teardown.
@@ -359,6 +430,11 @@ extern int zio_inject_list_next(int *id, char *name, size_t buflen,
 extern int zio_clear_fault(int id);
 extern int zio_handle_fault_injection(zio_t *zio, int error);
 extern int zio_handle_device_injection(vdev_t *vd, int error);
+extern int zio_handle_label_injection(zio_t *zio, int error);
+
+#ifdef __APPLE__
+extern char ziotypename(zio_t *zio);
+#endif
 
 #ifdef	__cplusplus
 }

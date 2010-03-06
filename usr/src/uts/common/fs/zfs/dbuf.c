@@ -19,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ *
+ * Portions Copyright 2009 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -38,15 +39,17 @@
 #include <sys/spa.h>
 #include <sys/zio.h>
 #include <sys/dmu_zfetch.h>
+#ifdef __APPLE_KERNEL__
+#include <sys/zfs_ubc.h>
+#endif
+#include <coverage.h>
+CODE_COVERAGE_CHECK_INIT;
 
 static void dbuf_destroy(dmu_buf_impl_t *db);
 static int dbuf_undirty(dmu_buf_impl_t *db, dmu_tx_t *tx);
-static void dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, int checksum,
-    int compress, dmu_tx_t *tx);
+static void dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, dmu_tx_t *tx);
 static arc_done_func_t dbuf_write_ready;
 static arc_done_func_t dbuf_write_done;
-
-int zfs_mdcomp_disable = 0;
 
 /*
  * Global data structures and functions for the dbuf cache.
@@ -323,7 +326,7 @@ dbuf_verify(dmu_buf_impl_t *db)
 	}
 	if (db->db_blkid == DB_BONUS_BLKID) {
 		ASSERT(dn != NULL);
-		ASSERT3U(db->db.db_size, ==, dn->dn_bonuslen);
+		ASSERT3U(db->db.db_size, >=, dn->dn_bonuslen);
 		ASSERT3U(db->db.db_offset, ==, DB_BONUS_BLKID);
 	} else {
 		ASSERT3U(db->db.db_offset, ==, db->db_blkid * db->db.db_size);
@@ -404,14 +407,19 @@ dbuf_update_data(dmu_buf_impl_t *db)
 	}
 }
 
-static void
+#ifndef __APPLE__
+static
+#endif
+void
 dbuf_set_data(dmu_buf_impl_t *db, arc_buf_t *buf)
 {
 	ASSERT(MUTEX_HELD(&db->db_mtx));
 	ASSERT(db->db_buf == NULL || !arc_has_callback(db->db_buf));
 	db->db_buf = buf;
 	if (buf != NULL) {
+#ifndef __APPLE__  /* if writing from UBC, buf->b_data is NULL */
 		ASSERT(buf->b_data != NULL);
+#endif
 		db->db.db_data = buf->b_data;
 		if (!arc_released(buf))
 			arc_set_callback(buf, dbuf_do_evict, db);
@@ -470,50 +478,64 @@ dbuf_read_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 }
 
 static void
+#ifdef __APPLE_KERNEL__
+dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags, uplinfo_t *upli)
+#else
 dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags)
+#endif
 {
-	blkptr_t *bp;
+	dnode_t *dn = db->db_dnode;
 	zbookmark_t zb;
 	uint32_t aflags = ARC_NOWAIT;
+	arc_buf_t *pbuf;
 
 	ASSERT(!refcount_is_zero(&db->db_holds));
 	/* We need the struct_rwlock to prevent db_blkptr from changing. */
-	ASSERT(RW_LOCK_HELD(&db->db_dnode->dn_struct_rwlock));
+	ASSERT(RW_LOCK_HELD(&dn->dn_struct_rwlock));
 	ASSERT(MUTEX_HELD(&db->db_mtx));
 	ASSERT(db->db_state == DB_UNCACHED);
 	ASSERT(db->db_buf == NULL);
 
 	if (db->db_blkid == DB_BONUS_BLKID) {
-		ASSERT3U(db->db_dnode->dn_bonuslen, ==, db->db.db_size);
+		int bonuslen = dn->dn_bonuslen;
+
+		ASSERT3U(bonuslen, <=, db->db.db_size);
 		db->db.db_data = zio_buf_alloc(DN_MAX_BONUSLEN);
 		arc_space_consume(DN_MAX_BONUSLEN);
-		if (db->db.db_size < DN_MAX_BONUSLEN)
+		if (bonuslen < DN_MAX_BONUSLEN)
 			bzero(db->db.db_data, DN_MAX_BONUSLEN);
-		bcopy(DN_BONUS(db->db_dnode->dn_phys), db->db.db_data,
-		    db->db.db_size);
+		bcopy(DN_BONUS(dn->dn_phys), db->db.db_data,
+		    bonuslen);
 		dbuf_update_data(db);
 		db->db_state = DB_CACHED;
 		mutex_exit(&db->db_mtx);
 		return;
 	}
 
-	if (db->db_level == 0 && dnode_block_freed(db->db_dnode, db->db_blkid))
-		bp = NULL;
-	else
-		bp = db->db_blkptr;
-
-	if (bp == NULL)
-		dprintf_dbuf(db, "blkptr: %s\n", "NULL");
-	else
-		dprintf_dbuf_bp(db, bp, "%s", "blkptr:");
-
-	if (bp == NULL || BP_IS_HOLE(bp)) {
+	if (db->db_blkptr == NULL || BP_IS_HOLE(db->db_blkptr) ||
+	    (db->db_level == 0 && dnode_block_freed(dn, db->db_blkid))) {
 		arc_buf_contents_t type = DBUF_GET_BUFC_TYPE(db);
+#ifdef __APPLE_KERNEL__
+		arc_buf_t *buf;
 
-		ASSERT(bp == NULL || BP_IS_HOLE(bp));
-		dbuf_set_data(db, arc_buf_alloc(db->db_dnode->dn_objset->os_spa,
+		buf = arc_buf_alloc(dn->dn_objset->os_spa, db->db.db_size,
+		    db, type, (upli == NULL)/*alloc_data*/);
+		buf->b_uplinfo = upli;
+		insert_upli(upli);
+		dbuf_set_data(db, buf);
+		if (upli == NULL) {
+			bzero(db->db.db_data, db->db.db_size);
+		} else {
+			sharedupl_t *supl = upli_sharedupl(upli);
+			cluster_zero(supl->su_upl,
+			    (upli->ui_f_off - supl->su_upl_f_off),
+			    db->db.db_size, NULL);
+		}
+#else
+		dbuf_set_data(db, arc_buf_alloc(dn->dn_objset->os_spa,
 		    db->db.db_size, db, type));
 		bzero(db->db.db_data, db->db.db_size);
+#endif
 		db->db_state = DB_CACHED;
 		*flags |= DB_RF_CACHED;
 		mutex_exit(&db->db_mtx);
@@ -531,19 +553,33 @@ dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags)
 
 	dbuf_add_ref(db, NULL);
 	/* ZIO_FLAG_CANFAIL callers have to check the parent zio's error */
-	ASSERT3U(db->db_dnode->dn_type, <, DMU_OT_NUMTYPES);
-	(void) arc_read(zio, db->db_dnode->dn_objset->os_spa, bp,
-	    db->db_level > 0 ? byteswap_uint64_array :
-	    dmu_ot[db->db_dnode->dn_type].ot_byteswap,
+
+	if (db->db_parent)
+		pbuf = db->db_parent->db_buf;
+	else
+		pbuf = db->db_objset->os_phys_buf;
+
+#ifdef __APPLE_KERNEL__
+	(void) arc_read_osx(zio, dn->dn_objset->os_spa, db->db_blkptr, pbuf,
+	    dbuf_read_done, db, ZIO_PRIORITY_SYNC_READ,
+	    (*flags & DB_RF_CANFAIL) ? ZIO_FLAG_CANFAIL : ZIO_FLAG_MUSTSUCCEED,
+	    &aflags, &zb, upli);
+#else
+	(void) arc_read(zio, dn->dn_objset->os_spa, db->db_blkptr, pbuf,
 	    dbuf_read_done, db, ZIO_PRIORITY_SYNC_READ,
 	    (*flags & DB_RF_CANFAIL) ? ZIO_FLAG_CANFAIL : ZIO_FLAG_MUSTSUCCEED,
 	    &aflags, &zb);
+#endif
 	if (aflags & ARC_CACHED)
 		*flags |= DB_RF_CACHED;
 }
 
 int
+#ifdef __APPLE_KERNEL__
+dbuf_read_osx(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags, void *upli)
+#else
 dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
+#endif
 {
 	int err = 0;
 	int havepzio = (zio != NULL);
@@ -574,7 +610,11 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 			zio = zio_root(db->db_dnode->dn_objset->os_spa,
 			    NULL, NULL, ZIO_FLAG_CANFAIL);
 		}
+#ifdef __APPLE_KERNEL__
+		dbuf_read_impl(db, zio, &flags, upli);
+#else
 		dbuf_read_impl(db, zio, &flags);
+#endif
 
 		/* dbuf_read_impl has dropped db_mtx for us */
 
@@ -609,12 +649,21 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 		mutex_exit(&db->db_mtx);
 	}
 
+#ifdef __APPLE_KERNEL__
+	 /* when upl is not NULL, I/O goes into upl directly, so db_state should still be uncached */
+	ASSERT((db->db_state == DB_UNCACHED && upli != NULL) || err || havepzio || db->db_state == DB_CACHED);
+#else
 	ASSERT(err || havepzio || db->db_state == DB_CACHED);
+#endif
 	return (err);
 }
 
 static void
+#ifdef __APPLE_KERNEL__
+dbuf_noread(dmu_buf_impl_t *db, void *uplinfo)
+#else
 dbuf_noread(dmu_buf_impl_t *db)
+#endif
 {
 	ASSERT(!refcount_is_zero(&db->db_holds));
 	ASSERT(db->db_blkid != DB_BONUS_BLKID);
@@ -626,14 +675,65 @@ dbuf_noread(dmu_buf_impl_t *db)
 
 		ASSERT(db->db_buf == NULL);
 		ASSERT(db->db.db_data == NULL);
+#ifdef __APPLE_KERNEL__
+		arc_buf_t *buf;
+
+		buf = arc_buf_alloc(db->db_dnode->dn_objset->os_spa, db->db.db_size,
+		    db, type, (uplinfo == NULL)/*alloc_data*/);
+		buf->b_uplinfo = uplinfo;
+		if (uplinfo) {
+			debug_msg("%s:%d created buf %p upli=%p", __func__, __LINE__, buf, uplinfo);
+		}
+		insert_upli(uplinfo);
+		dbuf_set_data(db, buf);
+#else
 		dbuf_set_data(db, arc_buf_alloc(db->db_dnode->dn_objset->os_spa,
 		    db->db.db_size, db, type));
+#endif
 		db->db_state = DB_FILL;
 	} else {
 		ASSERT3U(db->db_state, ==, DB_CACHED);
 	}
 	mutex_exit(&db->db_mtx);
 }
+
+#ifdef __APPLE_KERNEL__
+void dbuf_conv_db_upl_to_arc(dmu_buf_impl_t *db, boolean_t copy_data)
+{
+	uplinfo_t *upli = db->db_buf->b_uplinfo;
+	off_t uploff;
+	ASSERT(db->db.db_data == NULL && upli != NULL);
+
+	if (copy_data) {
+		sharedupl_get(upli, FALSE/*for_read*/);
+	}
+	mutex_enter(&db->db_mtx);
+
+	remove_upli(db->db_buf->b_uplinfo);
+	db->db_buf->b_uplinfo = NULL;
+	arc_get_data_buf(db->db_buf);
+	arc_buf_hdr_set_realdatacnt(db->db_buf->b_hdr, arc_buf_hdr_realdatacnt(db->db_buf->b_hdr) + 1);
+	dbuf_set_data(db, db->db_buf);
+	if (copy_data) {
+		sharedupl_t *supl = upli_sharedupl(upli);
+		uploff = upli->ui_f_off - supl->su_upl_f_off;
+		copy_upl_to_mem(supl->su_upl, uploff, db->db.db_data, arc_buf_size(db->db_buf), supl->su_pl);
+	}
+
+	mutex_exit(&db->db_mtx);
+	if (copy_data) {
+		sharedupl_put(upli, FALSE/*clear_dirty*/);
+	}
+	mutex_destroy(&upli->ui_lock);
+	debug_msg("%s: release upli=%p stack: %p %p %p %p %p", __func__, upli, __builtin_return_address(0), __builtin_return_address(1), __builtin_return_address(2), __builtin_return_address(3), __builtin_return_address(4));
+	atomic_dec_32(&num_upli);
+#ifdef ZFS_DEBUG
+	memset(upli, 0xC3, sizeof(uplinfo_t));
+#endif
+	debug_msg_level(MSG_LEVEL - 10, "%s:%d free upli=%p stack:%p %p %p %p", __func__, __LINE__, upli, __builtin_return_address(1), __builtin_return_address(2), __builtin_return_address(3), __builtin_return_address(4));
+	kmem_free(upli, sizeof(uplinfo_t));
+}
+#endif /* __APPLE_KERNEL__ */
 
 /*
  * This is our just-in-time copy function.  It makes a copy of
@@ -649,12 +749,20 @@ dbuf_noread(dmu_buf_impl_t *db)
  * dbuf list for the dnode.
  */
 static void
+#ifdef __APPLE_KERNEL__
+dbuf_fix_old_data(dmu_buf_impl_t *db, uint64_t txg, sharedupl_t *tmpsu)
+#else
 dbuf_fix_old_data(dmu_buf_impl_t *db, uint64_t txg)
+#endif
 {
 	dbuf_dirty_record_t *dr = db->db_last_dirty;
 
 	ASSERT(MUTEX_HELD(&db->db_mtx));
+#ifdef __APPLE_KERNEL__
+	ASSERT(db->db.db_data != NULL || db->db_buf->b_uplinfo != NULL);
+#else
 	ASSERT(db->db.db_data != NULL);
+#endif
 	ASSERT(db->db_level == 0);
 	ASSERT(db->db.db_object != DMU_META_DNODE_OBJECT);
 
@@ -679,9 +787,42 @@ dbuf_fix_old_data(dmu_buf_impl_t *db, uint64_t txg)
 	} else if (refcount_count(&db->db_holds) > db->db_dirtycnt) {
 		int size = db->db.db_size;
 		arc_buf_contents_t type = DBUF_GET_BUFC_TYPE(db);
+#ifdef __APPLE_KERNEL__
+		if (db->db_buf->b_uplinfo != NULL) {
+			/* let both buffers have copy of upl data since both bufs may stay longer than the vp is (XXX why?) */
+			uplinfo_t *upli = db->db_buf->b_uplinfo;
+			sharedupl_t *supl;
+
+			dr->dt.dl.dr_data = arc_buf_alloc(
+				db->db_dnode->dn_objset->os_spa, size, db, type, TRUE/*alloc_data*/);
+			db->db_buf->b_uplinfo = NULL;	/* XXX does this cause memory leak? */
+			arc_get_data_buf(db->db_buf);
+			arc_buf_hdr_set_realdatacnt(db->db_buf->b_hdr,
+			    arc_buf_hdr_realdatacnt(db->db_buf->b_hdr) + 1);
+			dbuf_set_data(db, db->db_buf);
+
+			if (tmpsu == NULL) {
+				sharedupl_get(upli, FALSE/*for_read*/);
+			}
+			supl = tmpsu ? tmpsu : upli_sharedupl(upli);
+			off_t off = upli->ui_f_off - supl->su_upl_f_off;
+			copy_upl_to_mem(supl->su_upl, off, db->db_buf->b_data, size, supl->su_pl);
+			copy_upl_to_mem(supl->su_upl, off, dr->dt.dl.dr_data->b_data, size, supl->su_pl);
+			debug_msg("%s: upli=%p upl=%p db->db_buf=%p dr->dt.dl.dr_data=%p",
+			    __func__, upli, supl->su_upl, db->db_buf, dr->dt.dl.dr_data);
+			if (tmpsu == NULL) {
+				sharedupl_put(upli, FALSE/*clear_dirty*/);
+			}
+		} else {
+			dr->dt.dl.dr_data = arc_buf_alloc(
+				db->db_dnode->dn_objset->os_spa, size, db, type, TRUE/*alloc_data*/);
+			bcopy(db->db.db_data, dr->dt.dl.dr_data->b_data, size);
+		}
+#else
 		dr->dt.dl.dr_data = arc_buf_alloc(
 		    db->db_dnode->dn_objset->os_spa, size, db, type);
 		bcopy(db->db.db_data, dr->dt.dl.dr_data->b_data, size);
+#endif
 	} else {
 		dbuf_set_data(db, NULL);
 	}
@@ -704,7 +845,8 @@ dbuf_unoverride(dbuf_dirty_record_t *dr)
 	/* free this block */
 	if (!BP_IS_HOLE(&dr->dt.dl.dr_overridden_by)) {
 		/* XXX can get silent EIO here */
-		(void) arc_free(NULL, db->db_dnode->dn_objset->os_spa,
+		(void) dsl_free(NULL,
+		    spa_get_dsl(db->db_dnode->dn_objset->os_spa),
 		    txg, &dr->dt.dl.dr_overridden_by, NULL, NULL, ARC_WAIT);
 	}
 	dr->dt.dl.dr_override_state = DR_NOT_OVERRIDDEN;
@@ -719,22 +861,50 @@ dbuf_unoverride(dbuf_dirty_record_t *dr)
 	arc_release(dr->dt.dl.dr_data, db);
 }
 
+/*
+ * Evict (if its unreferenced) or clear (if its referenced) any level-0
+ * data blocks in the free range, so that any future readers will find
+ * empty blocks.  Also, if we happen accross any level-1 dbufs in the
+ * range that have not already been marked dirty, mark them dirty so
+ * they stay in memory.
+ */
 void
-dbuf_free_range(dnode_t *dn, uint64_t blkid, uint64_t nblks, dmu_tx_t *tx)
+dbuf_free_range(dnode_t *dn, uint64_t start, uint64_t end, dmu_tx_t *tx)
 {
 	dmu_buf_impl_t *db, *db_next;
 	uint64_t txg = tx->tx_txg;
+	int epbs = dn->dn_indblkshift - SPA_BLKPTRSHIFT;
+	uint64_t first_l1 = start >> epbs;
+	uint64_t last_l1 = end >> epbs;
 
-	dprintf_dnode(dn, "blkid=%llu nblks=%llu\n", blkid, nblks);
+	if (end > dn->dn_maxblkid) {
+		end = dn->dn_maxblkid;
+		last_l1 = end >> epbs;
+	}
+	dprintf_dnode(dn, "start=%llu end=%llu\n", start, end);
 	mutex_enter(&dn->dn_dbufs_mtx);
 	for (db = list_head(&dn->dn_dbufs); db; db = db_next) {
 		db_next = list_next(&dn->dn_dbufs, db);
 		ASSERT(db->db_blkid != DB_BONUS_BLKID);
+
+		if (db->db_level == 1 &&
+		    db->db_blkid >= first_l1 && db->db_blkid <= last_l1) {
+			mutex_enter(&db->db_mtx);
+			if (db->db_last_dirty &&
+			    db->db_last_dirty->dr_txg < txg) {
+				dbuf_add_ref(db, FTAG);
+				mutex_exit(&db->db_mtx);
+				dbuf_will_dirty(db, tx);
+				dbuf_rele(db, FTAG);
+			} else {
+				mutex_exit(&db->db_mtx);
+			}
+		}
+
 		if (db->db_level != 0)
 			continue;
 		dprintf_dbuf(db, "found buf %s\n", "");
-		if (db->db_blkid < blkid ||
-		    db->db_blkid >= blkid+nblks)
+		if (db->db_blkid < start || db->db_blkid > end)
 			continue;
 
 		/* found a level 0 buffer in the range */
@@ -780,14 +950,33 @@ dbuf_free_range(dnode_t *dn, uint64_t blkid, uint64_t nblks, dmu_tx_t *tx)
 				 * the open context) or reset its contents to
 				 * empty.
 				 */
+#ifdef __APPLE_KERNEL__
+				dbuf_fix_old_data(db, txg, NULL);
+#else
 				dbuf_fix_old_data(db, txg);
+#endif
 			}
 		}
 		/* clear the contents if its cached */
 		if (db->db_state == DB_CACHED) {
+#ifdef __APPLE_KERNEL__
+			ASSERT(db->db.db_data != NULL || db->db_buf->b_uplinfo != NULL);
+			arc_release(db->db_buf, db);
+			if (db->db_buf->b_uplinfo != NULL) {
+				uplinfo_t *upli = db->db_buf->b_uplinfo;
+				sharedupl_get(upli, FALSE/*for_read*/);
+				sharedupl_t *supl = upli_sharedupl(upli);
+				cluster_zero(supl->su_upl, (upli->ui_f_off - supl->su_upl_f_off),
+				    db->db.db_size, NULL);
+				sharedupl_put(upli, FALSE/*clear_dirty*/);
+			} else {
+				bzero(db->db.db_data, db->db.db_size);
+			}
+#else
 			ASSERT(db->db.db_data != NULL);
 			arc_release(db->db_buf, db);
 			bzero(db->db.db_data, db->db.db_size);
+#endif
 			arc_buf_freeze(db->db_buf);
 		}
 
@@ -797,14 +986,10 @@ dbuf_free_range(dnode_t *dn, uint64_t blkid, uint64_t nblks, dmu_tx_t *tx)
 }
 
 static int
-dbuf_new_block(dmu_buf_impl_t *db)
+dbuf_block_freeable(dmu_buf_impl_t *db)
 {
 	dsl_dataset_t *ds = db->db_objset->os_dsl_dataset;
 	uint64_t birth_txg = 0;
-
-	/* Don't count meta-objects */
-	if (ds == NULL)
-		return (FALSE);
 
 	/*
 	 * We don't need any locking to protect db_blkptr:
@@ -812,16 +997,17 @@ dbuf_new_block(dmu_buf_impl_t *db)
 	 * so we'll ignore db_blkptr.
 	 */
 	ASSERT(MUTEX_HELD(&db->db_mtx));
-	/* If we have been dirtied since the last snapshot, its not new */
 	if (db->db_last_dirty)
 		birth_txg = db->db_last_dirty->dr_txg;
 	else if (db->db_blkptr)
 		birth_txg = db->db_blkptr->blk_birth;
 
+	/* If we don't exist or are in a snapshot, we can't be freed */
 	if (birth_txg)
-		return (!dsl_dataset_block_freeable(ds, birth_txg));
+		return (ds == NULL ||
+		    dsl_dataset_block_freeable(ds, birth_txg));
 	else
-		return (TRUE);
+		return (FALSE);
 }
 
 void
@@ -849,18 +1035,62 @@ dbuf_new_size(dmu_buf_impl_t *db, int size, dmu_tx_t *tx)
 	dbuf_will_dirty(db, tx);
 
 	/* create the data buffer for the new block */
+#ifdef __APPLE_KERNEL__
+	buf = arc_buf_alloc(db->db_dnode->dn_objset->os_spa, size, db, type, TRUE/*alloc_buf*/);
+#else
 	buf = arc_buf_alloc(db->db_dnode->dn_objset->os_spa, size, db, type);
+#endif
 
 	/* copy old block data to the new block */
 	obuf = db->db_buf;
+#ifdef __APPLE_KERNEL__
+	int has_hole;
+	int page_index, num_pages;
+	uplinfo_t *upli;
+	sharedupl_t *supl;
+	upl_t upl;
+	int offset;
+	has_hole = FALSE;
+	if (obuf->b_data != NULL) {
+		bcopy(obuf->b_data, buf->b_data, MIN(osize, size));
+	} else {
+		upli = obuf->b_uplinfo;
+		ASSERT(upli != NULL);
+		sharedupl_get(upli, FALSE/*for_read*/);
+		supl = upli_sharedupl(upli);
+		upl = supl->su_upl;
+		offset = upli->ui_f_off - supl->su_upl_f_off;
+
+ 		num_pages = howmany(supl->su_upl_size, PAGE_SIZE);
+		if (supl->su_pl) {
+			for (page_index = 0; page_index < num_pages; page_index++) {
+				if (!upl_valid_page(supl->su_pl, page_index)) {
+					has_hole = TRUE;
+					break;
+				}
+			}
+		}
+		if (!has_hole) {
+			copy_upl_to_mem(upl, offset, buf->b_data, MIN(osize, size), supl->su_pl);
+			sharedupl_put(upli, FALSE/*clear_dirty*/);
+		}
+	}
+#else
 	bcopy(obuf->b_data, buf->b_data, MIN(osize, size));
+#endif
 	/* zero the remainder */
 	if (size > osize)
 		bzero((uint8_t *)buf->b_data + osize, size - osize);
 
 	mutex_enter(&db->db_mtx);
 	dbuf_set_data(db, buf);
+#ifdef __APPLE_KERNEL__
+	if (!has_hole) {
+		VERIFY(arc_buf_remove_ref(obuf, db) == 1);
+	}
+#else
 	VERIFY(arc_buf_remove_ref(obuf, db) == 1);
+#endif
 	db->db.db_size = size;
 
 	if (db->db_level == 0) {
@@ -869,11 +1099,37 @@ dbuf_new_size(dmu_buf_impl_t *db, int size, dmu_tx_t *tx)
 	}
 	mutex_exit(&db->db_mtx);
 
+#ifdef __APPLE_KERNEL__
+	if (has_hole) {/* we must read data from the media to cover the stuff in hole */
+		CODE_COVERAGE_CHECK;
+		/* read the data */
+		arc_read_fill_buf(db, NULL/*upli*/, TRUE/*lock_db*/);
+
+		/* copy the rest of the data over so the buffer has the latest data */
+		int bytes_left;
+		bytes_left = MIN(osize, size);
+		for (page_index = 0; page_index < num_pages; page_index++) {
+			if (upl_valid_page(supl->su_pl, page_index)) {
+				copy_upl_to_mem(upl, offset + page_index * PAGE_SIZE, buf->b_data + page_index * PAGE_SIZE, MIN(bytes_left, PAGE_SIZE), supl->su_pl);
+			}
+			bytes_left -= MIN(bytes_left, PAGE_SIZE);
+		}
+		sharedupl_put(upli, TRUE/*clear_dirty*/); /* new data are in ARC, so we can clean the dirty bit */
+		mutex_enter(&db->db_mtx);
+		VERIFY(arc_buf_remove_ref(obuf, db) == 1);
+		mutex_exit(&db->db_mtx);
+	}
+#endif
+
 	dnode_willuse_space(db->db_dnode, size-osize, tx);
 }
 
 dbuf_dirty_record_t *
+#ifdef __APPLE_KERNEL__
+dbuf_dirty_osx(dmu_buf_impl_t *db, dmu_tx_t *tx, sharedupl_t *tmpsu)
+#else
 dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
+#endif
 {
 	dnode_t *dn = db->db_dnode;
 	objset_impl_t *os = dn->dn_objset;
@@ -936,20 +1192,20 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	drp = &db->db_last_dirty;
 	ASSERT(*drp == NULL || (*drp)->dr_txg <= tx->tx_txg ||
 	    db->db.db_object == DMU_META_DNODE_OBJECT);
-	while (*drp && (*drp)->dr_txg > tx->tx_txg)
-		drp = &(*drp)->dr_next;
-	if (*drp && (*drp)->dr_txg == tx->tx_txg) {
+	while ((dr = *drp) != NULL && dr->dr_txg > tx->tx_txg)
+		drp = &dr->dr_next;
+	if (dr && dr->dr_txg == tx->tx_txg) {
 		if (db->db_level == 0 && db->db_blkid != DB_BONUS_BLKID) {
 			/*
 			 * If this buffer has already been written out,
 			 * we now need to reset its state.
 			 */
-			dbuf_unoverride(*drp);
+			dbuf_unoverride(dr);
 			if (db->db.db_object != DMU_META_DNODE_OBJECT)
 				arc_buf_thaw(db->db_buf);
 		}
 		mutex_exit(&db->db_mtx);
-		return (*drp);
+		return (dr);
 	}
 
 	/*
@@ -980,6 +1236,27 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 
 	dprintf_dbuf(db, "size=%llx\n", (u_longlong_t)db->db.db_size);
 
+	if (db->db_blkid != DB_BONUS_BLKID) {
+		/*
+		 * Update the accounting.
+		 */
+		if (dbuf_block_freeable(db)) {
+			blkptr_t *bp = db->db_blkptr;
+			int64_t willfree = (bp && !BP_IS_HOLE(bp)) ?
+			    bp_get_dasize(os->os_spa, bp) : db->db.db_size;
+			/*
+			 * This is only a guess -- if the dbuf is dirty
+			 * in a previous txg, we don't know how much
+			 * space it will use on disk yet.  We should
+			 * really have the struct_rwlock to access
+			 * db_blkptr, but since this is just a guess,
+			 * it's OK if we get an odd answer.
+			 */
+			dnode_willuse_space(dn, -willfree, tx);
+		}
+		dnode_willuse_space(dn, db->db.db_size, tx);
+	}
+
 	/*
 	 * If this buffer is dirty in an old transaction group we need
 	 * to make a copy of it so that the changes we make in this
@@ -990,7 +1267,11 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 		void *data_old = db->db_buf;
 
 		if (db->db_blkid == DB_BONUS_BLKID) {
+#ifdef __APPLE_KERNEL__
+			dbuf_fix_old_data(db, tx->tx_txg, NULL);
+#else
 			dbuf_fix_old_data(db, tx->tx_txg);
+#endif
 			data_old = db->db.db_data;
 		} else if (db->db.db_object != DMU_META_DNODE_OBJECT) {
 			/*
@@ -1001,7 +1282,11 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 			 * syncing state (since they are only modified then).
 			 */
 			arc_release(db->db_buf, db);
+#ifdef __APPLE_KERNEL__
+			dbuf_fix_old_data(db, tx->tx_txg, tmpsu);
+#else
 			dbuf_fix_old_data(db, tx->tx_txg);
+#endif
 			data_old = db->db_buf;
 		}
 		ASSERT(data_old != NULL);
@@ -1027,25 +1312,6 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 		dnode_clear_range(dn, db->db_blkid, 1, tx);
 		mutex_exit(&dn->dn_mtx);
 		db->db_freed_in_flight = FALSE;
-	}
-
-	if (db->db_blkid != DB_BONUS_BLKID) {
-		/*
-		 * Update the accounting.
-		 */
-		if (!dbuf_new_block(db) && db->db_blkptr) {
-			/*
-			 * This is only a guess -- if the dbuf is dirty
-			 * in a previous txg, we don't know how much
-			 * space it will use on disk yet.  We should
-			 * really have the struct_rwlock to access
-			 * db_blkptr, but since this is just a guess,
-			 * it's OK if we get an odd answer.
-			 */
-			dnode_willuse_space(dn,
-			    -bp_get_dasize(os->os_spa, db->db_blkptr), tx);
-		}
-		dnode_willuse_space(dn, db->db.db_size, tx);
 	}
 
 	/*
@@ -1129,7 +1395,7 @@ dbuf_undirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 {
 	dnode_t *dn = db->db_dnode;
 	uint64_t txg = tx->tx_txg;
-	dbuf_dirty_record_t *dr;
+	dbuf_dirty_record_t *dr, **drp;
 
 	ASSERT(txg != 0);
 	ASSERT(db->db_blkid != DB_BONUS_BLKID);
@@ -1139,7 +1405,7 @@ dbuf_undirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	/*
 	 * If this buffer is not dirty, we're done.
 	 */
-	for (dr = db->db_last_dirty; dr; dr = dr->dr_next)
+	for (drp = &db->db_last_dirty; (dr = *drp) != NULL; drp = &dr->dr_next)
 		if (dr->dr_txg <= txg)
 			break;
 	if (dr == NULL || dr->dr_txg < txg) {
@@ -1169,14 +1435,14 @@ dbuf_undirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 
 	/* XXX would be nice to fix up dn_towrite_space[] */
 
-	db->db_last_dirty = dr->dr_next;
+	*drp = dr->dr_next;
 
 	if (dr->dr_parent) {
 		mutex_enter(&dr->dr_parent->dt.di.dr_mtx);
 		list_remove(&dr->dr_parent->dt.di.dr_children, dr);
 		mutex_exit(&dr->dr_parent->dt.di.dr_mtx);
 	} else if (db->db_level+1 == dn->dn_nlevels) {
-		ASSERT3P(db->db_parent, ==, dn->dn_dbuf);
+		ASSERT(db->db_blkptr == NULL || db->db_parent == dn->dn_dbuf);
 		mutex_enter(&dn->dn_mtx);
 		list_remove(&dn->dn_dirty_records[txg & TXG_MASK], dr);
 		mutex_exit(&dn->dn_mtx);
@@ -1214,13 +1480,16 @@ dbuf_undirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	return (0);
 }
 
-#ifndef __APPLE__
+#ifdef __APPLE_KERNEL__
+void
+dbuf_will_dirty_osx(dmu_buf_impl_t *db, dmu_tx_t *tx, sharedupl_t *tmpsu)
+#else
 #pragma weak dmu_buf_will_dirty = dbuf_will_dirty
-#endif
 void
 dbuf_will_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
+#endif
 {
-	int rf = DB_RF_MUST_SUCCEED;
+	int rf = DB_RF_MUST_SUCCEED | DB_RF_NOPREFETCH;
 
 	ASSERT(tx->tx_txg != 0);
 	ASSERT(!refcount_is_zero(&db->db_holds));
@@ -1228,11 +1497,19 @@ dbuf_will_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	if (RW_WRITE_HELD(&db->db_dnode->dn_struct_rwlock))
 		rf |= DB_RF_HAVESTRUCT;
 	(void) dbuf_read(db, NULL, rf);
+#ifdef __APPLE_KERNEL__
+	(void) dbuf_dirty_osx(db, tx, tmpsu);
+#else
 	(void) dbuf_dirty(db, tx);
+#endif
 }
 
 void
+#ifdef __APPLE_KERNEL__
+dmu_buf_will_fill_osx(dmu_buf_t *db_fake, dmu_tx_t *tx, void *uplinfo, sharedupl_t *tmpsu)
+#else
 dmu_buf_will_fill(dmu_buf_t *db_fake, dmu_tx_t *tx)
+#endif
 {
 	dmu_buf_impl_t *db = (dmu_buf_impl_t *)db_fake;
 
@@ -1244,8 +1521,13 @@ dmu_buf_will_fill(dmu_buf_t *db_fake, dmu_tx_t *tx)
 	ASSERT(db->db.db_object != DMU_META_DNODE_OBJECT ||
 	    dmu_tx_private_ok(tx));
 
+#ifdef __APPLE_KERNEL__
+	dbuf_noread(db, uplinfo);
+	(void) dbuf_dirty_osx(db, tx, tmpsu);
+#else
 	dbuf_noread(db);
 	(void) dbuf_dirty(db, tx);
+#endif
 }
 
 #ifndef __APPLE__
@@ -1299,7 +1581,9 @@ dbuf_clear(dmu_buf_impl_t *db)
 	dbuf_evict_user(db);
 
 	if (db->db_state == DB_CACHED) {
+#ifndef __APPLE__
 		ASSERT(db->db.db_data != NULL);
+#endif
 		if (db->db_blkid == DB_BONUS_BLKID) {
 			zio_buf_free(db->db.db_data, DN_MAX_BONUSLEN);
 			arc_space_return(DN_MAX_BONUSLEN);
@@ -1317,6 +1601,7 @@ dbuf_clear(dmu_buf_impl_t *db)
 	if (db->db_blkid != DB_BONUS_BLKID && MUTEX_HELD(&dn->dn_dbufs_mtx)) {
 		list_remove(&dn->dn_dbufs, db);
 		dnode_rele(dn, db);
+		db->db_dnode = NULL;
 	}
 
 	if (db->db_buf)
@@ -1417,7 +1702,9 @@ dbuf_create(dnode_t *dn, uint8_t level, uint64_t blkid,
 
 	if (blkid == DB_BONUS_BLKID) {
 		ASSERT3P(parent, ==, dn->dn_dbuf);
-		db->db.db_size = dn->dn_bonuslen;
+		db->db.db_size = DN_MAX_BONUSLEN -
+		    (dn->dn_nblkptr-1) * sizeof (blkptr_t);
+		ASSERT3U(db->db.db_size, >=, dn->dn_bonuslen);
 		db->db.db_offset = DB_BONUS_BLKID;
 		db->db_state = DB_UNCACHED;
 		/* the bonus dbuf is not placed in the hash table */
@@ -1491,29 +1778,23 @@ dbuf_destroy(dmu_buf_impl_t *db)
 	ASSERT(refcount_is_zero(&db->db_holds));
 
 	if (db->db_blkid != DB_BONUS_BLKID) {
-		dnode_t *dn = db->db_dnode;
-		boolean_t need_mutex = !MUTEX_HELD(&dn->dn_dbufs_mtx);
-
-		if (need_mutex)
-			mutex_enter(&dn->dn_dbufs_mtx);
-
 		/*
 		 * If this dbuf is still on the dn_dbufs list,
 		 * remove it from that list.
 		 */
-		if (list_link_active(&db->db_link)) {
-			ASSERT(need_mutex);
+		if (db->db_dnode) {
+			dnode_t *dn = db->db_dnode;
+
+			mutex_enter(&dn->dn_dbufs_mtx);
 			list_remove(&dn->dn_dbufs, db);
 			mutex_exit(&dn->dn_dbufs_mtx);
 
 			dnode_rele(dn, db);
-		} else if (need_mutex) {
-			mutex_exit(&dn->dn_dbufs_mtx);
+			db->db_dnode = NULL;
 		}
 		dbuf_hash_remove(db);
 	}
 	db->db_parent = NULL;
-	db->db_dnode = NULL;
 	db->db_buf = NULL;
 
 	ASSERT(!list_link_active(&db->db_link));
@@ -1555,6 +1836,7 @@ dbuf_prefetch(dnode_t *dn, uint64_t blkid)
 
 	if (dbuf_findbp(dn, 0, blkid, TRUE, &db, &bp) == 0) {
 		if (bp && !BP_IS_HOLE(bp)) {
+			arc_buf_t *pbuf;
 			uint32_t aflags = ARC_NOWAIT | ARC_PREFETCH;
 			zbookmark_t zb;
 			zb.zb_objset = dn->dn_objset->os_dsl_dataset ?
@@ -1563,9 +1845,13 @@ dbuf_prefetch(dnode_t *dn, uint64_t blkid)
 			zb.zb_level = 0;
 			zb.zb_blkid = blkid;
 
-			(void) arc_read(NULL, dn->dn_objset->os_spa, bp,
-			    dmu_ot[dn->dn_type].ot_byteswap,
-			    NULL, NULL, ZIO_PRIORITY_ASYNC_READ,
+			if (db)
+				pbuf = db->db_buf;
+			else
+				pbuf = dn->dn_objset->os_phys_buf;
+
+			(void) arc_read(NULL, dn->dn_objset->os_spa,
+			    bp, pbuf, NULL, NULL, ZIO_PRIORITY_ASYNC_READ,
 			    ZIO_FLAG_CANFAIL | ZIO_FLAG_SPECULATIVE,
 			    &aflags, &zb);
 		}
@@ -1578,9 +1864,15 @@ dbuf_prefetch(dnode_t *dn, uint64_t blkid)
  * Returns with db_holds incremented, and db_mtx not held.
  * Note: dn_struct_rwlock must be held.
  */
+#ifdef __APPLE_KERNEL__
+int
+dbuf_hold_impl_osx(dnode_t *dn, uint8_t level, uint64_t blkid, int fail_sparse,
+    void *tag, dmu_buf_impl_t **dbp, boolean_t for_read, sharedupl_t *tmpsu)
+#else
 int
 dbuf_hold_impl(dnode_t *dn, uint8_t level, uint64_t blkid, int fail_sparse,
     void *tag, dmu_buf_impl_t **dbp)
+#endif
 {
 	dmu_buf_impl_t *db, *parent = NULL;
 
@@ -1615,7 +1907,11 @@ top:
 
 	if (db->db_buf && refcount_is_zero(&db->db_holds)) {
 		arc_buf_add_ref(db->db_buf, db);
+#ifdef __APPLE_KERNEL__
+		if (db->db_buf->b_data == NULL && db->db_buf->b_uplinfo == NULL) {
+#else
 		if (db->db_buf->b_data == NULL) {
+#endif
 			dbuf_clear(db);
 			if (parent) {
 				dbuf_rele(parent, NULL);
@@ -1625,9 +1921,9 @@ top:
 		}
 		ASSERT3P(db->db.db_data, ==, db->db_buf->b_data);
 	}
-	
+
 	ASSERT(db->db_buf == NULL || arc_referenced(db->db_buf));
-	
+
 	/*
 	 * If this buffer is currently syncing out, and we are are
 	 * still referencing it from db_data, we need to make a copy
@@ -1641,11 +1937,37 @@ top:
 		if (dr->dt.dl.dr_data == db->db_buf) {
 			arc_buf_contents_t type = DBUF_GET_BUFC_TYPE(db);
 
+#ifdef __APPLE_KERNEL__
+			dbuf_set_data(db,
+			    arc_buf_alloc(db->db_dnode->dn_objset->os_spa,
+			    db->db.db_size, db, type, TRUE/*alloc_buf*/));
+			
+			if (dr->dt.dl.dr_data->b_data != NULL) {
+				bcopy(dr->dt.dl.dr_data->b_data, db->db.db_data,
+					  db->db.db_size);
+			} else {
+				uplinfo_t *upli = dr->dt.dl.dr_data->b_uplinfo;
+				sharedupl_t *supl;
+				ASSERT(upli != NULL);
+				if (tmpsu) {
+					supl = tmpsu;
+				} else {
+					sharedupl_get(upli, for_read);
+					supl = upli_sharedupl(upli);
+				}
+				off_t off = upli->ui_f_off - supl->su_upl_f_off;
+				copy_upl_to_mem(supl->su_upl, off, db->db.db_data, db->db.db_size, supl->su_pl);
+				if (tmpsu == NULL) {
+					sharedupl_put(upli, FALSE/*clear_dirty*/);
+				}
+			}
+#else
 			dbuf_set_data(db,
 			    arc_buf_alloc(db->db_dnode->dn_objset->os_spa,
 			    db->db.db_size, db, type));
 			bcopy(dr->dt.dl.dr_data->b_data, db->db.db_data,
 			    db->db.db_size);
+#endif
 		}
 	}
 
@@ -1666,11 +1988,20 @@ top:
 	return (0);
 }
 
+#ifdef __APPLE_KERNEL__
+dmu_buf_impl_t *
+dbuf_hold_osx(dnode_t *dn, uint64_t blkid, void *tag, boolean_t for_read, sharedupl_t *tmpsu)
+#else
 dmu_buf_impl_t *
 dbuf_hold(dnode_t *dn, uint64_t blkid, void *tag)
+#endif
 {
 	dmu_buf_impl_t *db;
+#ifdef __APPLE_KERNEL__
+	int err = dbuf_hold_impl_osx(dn, 0, blkid, FALSE, tag, &db, for_read, tmpsu);
+#else
 	int err = dbuf_hold_impl(dn, 0, blkid, FALSE, tag, &db);
+#endif
 	return (err ? NULL : db);
 }
 
@@ -1682,16 +2013,13 @@ dbuf_hold_level(dnode_t *dn, int level, uint64_t blkid, void *tag)
 	return (err ? NULL : db);
 }
 
-dmu_buf_impl_t *
+void
 dbuf_create_bonus(dnode_t *dn)
 {
-	dmu_buf_impl_t *db = dn->dn_bonus;
-
 	ASSERT(RW_WRITE_HELD(&dn->dn_struct_rwlock));
 
 	ASSERT(dn->dn_bonus == NULL);
-	db = dbuf_create(dn, 0, DB_BONUS_BLKID, dn->dn_dbuf, NULL);
-	return (db);
+	dn->dn_bonus = dbuf_create(dn, 0, DB_BONUS_BLKID, dn->dn_dbuf, NULL);
 }
 
 #ifndef __APPLE__
@@ -1749,8 +2077,18 @@ dbuf_rele(dmu_buf_impl_t *db, void *tag)
 			VERIFY(arc_buf_remove_ref(buf, db) == 1);
 			dbuf_evict(db);
 		} else {
+#ifdef __APPLE_KERNEL__
+			if (db->db_buf->b_uplinfo != NULL) {
+				VERIFY(arc_buf_remove_ref(db->db_buf, db) == 0);
+				dbuf_clear(db);
+			} else {
+				VERIFY(arc_buf_remove_ref(db->db_buf, db) == 0);
+				mutex_exit(&db->db_mtx);
+			}
+#else
 			VERIFY(arc_buf_remove_ref(db->db_buf, db) == 0);
 			mutex_exit(&db->db_mtx);
+#endif
 		}
 	} else {
 		mutex_exit(&db->db_mtx);
@@ -1888,15 +2226,8 @@ dbuf_sync_indirect(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 
 	db->db_data_pending = dr;
 
-	arc_release(db->db_buf, db);
 	mutex_exit(&db->db_mtx);
-
-	/*
-	 * XXX -- we should design a compression algorithm
-	 * that specializes in arrays of bps.
-	 */
-	dbuf_write(dr, db->db_buf, ZIO_CHECKSUM_FLETCHER_4,
-	    zfs_mdcomp_disable ? ZIO_COMPRESS_EMPTY : ZIO_COMPRESS_LZJB, tx);
+	dbuf_write(dr, db->db_buf, tx);
 
 	zio = dr->dr_zio;
 	mutex_enter(&dr->dt.di.dr_mtx);
@@ -1914,7 +2245,6 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 	dnode_t *dn = db->db_dnode;
 	objset_impl_t *os = dn->dn_objset;
 	uint64_t txg = tx->tx_txg;
-	int checksum, compress;
 	int blksz;
 
 	ASSERT(dmu_tx_is_syncing(tx));
@@ -1945,11 +2275,7 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 	 */
 	if (db->db_blkid == DB_BONUS_BLKID) {
 		dbuf_dirty_record_t **drp;
-		/*
-		 * Use dn_phys->dn_bonuslen since db.db_size is the length
-		 * of the bonus buffer in the open transaction rather than
-		 * the syncing transaction.
-		 */
+
 		ASSERT(*datap != NULL);
 		ASSERT3U(db->db_level, ==, 0);
 		ASSERT3U(dn->dn_phys->dn_bonuslen, <=, DN_MAX_BONUSLEN);
@@ -1962,8 +2288,8 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 		drp = &db->db_last_dirty;
 		while (*drp != dr)
 			drp = &(*drp)->dr_next;
-		ASSERT((*drp)->dr_next == NULL);
-		*drp = NULL;
+		ASSERT(dr->dr_next == NULL);
+		*drp = dr->dr_next;
 		kmem_free(dr, sizeof (dbuf_dirty_record_t));
 		ASSERT(db->db_dirtycnt > 0);
 		db->db_dirtycnt -= 1;
@@ -2011,7 +2337,7 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 		mutex_exit(&db->db_mtx);
 
 		if (BP_IS_OLDER(&zio_fake.io_bp_orig, txg))
-			dsl_dataset_block_kill(os->os_dsl_dataset,
+			(void) dsl_dataset_block_kill(os->os_dsl_dataset,
 			    &zio_fake.io_bp_orig, dn->dn_zio, tx);
 
 		dbuf_write_ready(&zio_fake, db->db_buf, db);
@@ -2034,17 +2360,23 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 		 */
 		if (refcount_count(&db->db_holds) > 1 && *datap == db->db_buf) {
 			arc_buf_contents_t type = DBUF_GET_BUFC_TYPE(db);
+#ifdef __APPLE_KERNEL__
+			*datap = arc_buf_alloc(os->os_spa, blksz, db, type, TRUE/*alloc_buf*/);
+			void *p;
+			uplinfo_t *upli;
+			if (db->db.db_data == NULL) {
+				upli = dr->dr_dbuf->db_buf->b_uplinfo;
+				p = getuplvaddr(upli, FALSE/*for_read*/) +
+					(upli->ui_f_off - upli_sharedupl(upli)->su_upl_f_off);
+			} else {
+				p = db->db.db_data;
+			}
+			bcopy(p, (*datap)->b_data, blksz);
+#else
 			*datap = arc_buf_alloc(os->os_spa, blksz, db, type);
 			bcopy(db->db.db_data, (*datap)->b_data, blksz);
+#endif
 		}
-	} else {
-		/*
-		 * Private object buffers are released here rather
-		 * than in dbuf_dirty() since they are only modified
-		 * in the syncing context and we don't want the
-		 * overhead of making multiple copies of the data.
-		 */
-		arc_release(db->db_buf, db);
 	}
 
 	ASSERT(*datap != NULL);
@@ -2052,22 +2384,7 @@ dbuf_sync_leaf(dbuf_dirty_record_t *dr, dmu_tx_t *tx)
 
 	mutex_exit(&db->db_mtx);
 
-	/*
-	 * Allow dnode settings to override objset settings,
-	 * except for metadata checksums.
-	 */
-	if (dmu_ot[dn->dn_type].ot_metadata) {
-		checksum = os->os_md_checksum;
-		compress = zio_compress_select(dn->dn_compress,
-		    os->os_md_compress);
-	} else {
-		checksum = zio_checksum_select(dn->dn_checksum,
-		    os->os_checksum);
-		compress = zio_compress_select(dn->dn_compress,
-		    os->os_compress);
-	}
-
-	dbuf_write(dr, *datap, checksum, compress, tx);
+	dbuf_write(dr, *datap, tx);
 
 	ASSERT(!list_link_active(&dr->dr_dirty_node));
 	if (dn->dn_object == DMU_META_DNODE_OBJECT)
@@ -2103,8 +2420,7 @@ dbuf_sync_list(list_t *list, dmu_tx_t *tx)
 }
 
 static void
-dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, int checksum,
-    int compress, dmu_tx_t *tx)
+dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, dmu_tx_t *tx)
 {
 	dmu_buf_impl_t *db = dr->dr_dbuf;
 	dnode_t *dn = db->db_dnode;
@@ -2112,8 +2428,24 @@ dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, int checksum,
 	dmu_buf_impl_t *parent = db->db_parent;
 	uint64_t txg = tx->tx_txg;
 	zbookmark_t zb;
+	writeprops_t wp = { 0 };
 	zio_t *zio;
 	int zio_flags;
+
+	if (!BP_IS_HOLE(db->db_blkptr) &&
+	    (db->db_level > 0 || dn->dn_type == DMU_OT_DNODE)) {
+		/*
+		 * Private object buffers are released here rather
+		 * than in dbuf_dirty() since they are only modified
+		 * in the syncing context and we don't want the
+		 * overhead of making multiple copies of the data.
+		 */
+		arc_release(data, db);
+	} else {
+		ASSERT(arc_released(data));
+		/* XXX why do we need to thaw here? */
+		arc_buf_thaw(data);
+	}
 
 	if (parent != dn->dn_dbuf) {
 		ASSERT(parent && parent->db_data_pending);
@@ -2139,13 +2471,20 @@ dbuf_write(dbuf_dirty_record_t *dr, arc_buf_t *data, int checksum,
 	zio_flags = ZIO_FLAG_MUSTSUCCEED;
 	if (dmu_ot[dn->dn_type].ot_metadata || zb.zb_level != 0)
 		zio_flags |= ZIO_FLAG_METADATA;
+	wp.wp_type = dn->dn_type;
+	wp.wp_level = db->db_level;
+	wp.wp_copies = os->os_copies;
+	wp.wp_dncompress = dn->dn_compress;
+	wp.wp_oscompress = os->os_compress;
+	wp.wp_dnchecksum = dn->dn_checksum;
+	wp.wp_oschecksum = os->os_checksum;
+
 	if (BP_IS_OLDER(db->db_blkptr, txg))
-		dsl_dataset_block_kill(
+		(void) dsl_dataset_block_kill(
 		    os->os_dsl_dataset, db->db_blkptr, zio, tx);
 
-	dr->dr_zio = arc_write(zio, os->os_spa, checksum, compress,
-	    dmu_get_replication_level(os, &zb, dn->dn_type), txg,
-	    db->db_blkptr, data, dbuf_write_ready, dbuf_write_done, db,
+	dr->dr_zio = arc_write(zio, os->os_spa, &wp,
+	    txg, db->db_blkptr, data, dbuf_write_ready, dbuf_write_done, db,
 	    ZIO_PRIORITY_ASYNC_WRITE, zio_flags, &zb);
 }
 
@@ -2172,7 +2511,7 @@ dbuf_write_ready(zio_t *zio, arc_buf_t *buf, void *vdb)
 		dmu_tx_t *tx = os->os_synctx;
 
 		if (bp_orig->blk_birth == tx->tx_txg)
-			dsl_dataset_block_kill(ds, bp_orig, NULL, tx);
+			(void) dsl_dataset_block_kill(ds, bp_orig, NULL, tx);
 		ASSERT3U(db->db_blkptr->blk_fill, ==, 0);
 		return;
 	}
@@ -2220,7 +2559,7 @@ dbuf_write_ready(zio_t *zio, arc_buf_t *buf, void *vdb)
 		dmu_tx_t *tx = os->os_synctx;
 
 		if (bp_orig->blk_birth == tx->tx_txg)
-			dsl_dataset_block_kill(ds, bp_orig, NULL, tx);
+			(void) dsl_dataset_block_kill(ds, bp_orig, NULL, tx);
 		dsl_dataset_block_born(ds, zio->io_bp, tx);
 	}
 }
@@ -2238,13 +2577,12 @@ dbuf_write_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 	mutex_enter(&db->db_mtx);
 
 	drp = &db->db_last_dirty;
-	while (*drp != db->db_data_pending)
-		drp = &(*drp)->dr_next;
-	ASSERT(!list_link_active(&(*drp)->dr_dirty_node));
-	ASSERT((*drp)->dr_txg == txg);
-	ASSERT((*drp)->dr_next == NULL);
-	dr = *drp;
-	*drp = NULL;
+	while ((dr = *drp) != db->db_data_pending)
+		drp = &dr->dr_next;
+	ASSERT(!list_link_active(&dr->dr_dirty_node));
+	ASSERT(dr->dr_txg == txg);
+	ASSERT(dr->dr_next == NULL);
+	*drp = dr->dr_next;
 
 	if (db->db_level == 0) {
 		ASSERT(db->db_blkid != DB_BONUS_BLKID);

@@ -49,7 +49,7 @@ extern pgcnt_t swapfs_reserve;		/* amount of availrmem (in pages) */
 					/* reservation to non-priv processes */
 
 extern struct vnodeops *swap_vnodeops;
-extern struct vnode *swapfs_getvp(ulong_t);
+extern vnode_t *swapfs_getvp(ulong_t);
 
 #ifdef SWAPFS_DEBUG
 extern int swapfs_debug;

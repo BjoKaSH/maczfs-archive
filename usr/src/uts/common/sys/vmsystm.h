@@ -35,9 +35,7 @@
  * software developed by the University of California, Berkeley, and its
  * contributors.
  */
-/* Portions Copyright 2007 Apple Inc. All rights reserved.
- * Use is subject to license terms.
- */
+
 
 #ifndef _SYS_VMSYSTM_H
 #define	_SYS_VMSYSTM_H

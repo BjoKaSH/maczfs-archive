@@ -22,7 +22,8 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ *
+ * Portions Copyright 2009 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -86,8 +87,8 @@
 #include <sys/mntent.h>
 #ifdef __APPLE__
 #include <paths.h>
+#include <wipefs.h>
 #endif
-
 
 #include "zpool_util.h"
 
@@ -95,6 +96,7 @@
 #define	DISK_ROOT	"/dev"
 #define	RDISK_ROOT	"/dev"
 #define	BACKUP_SLICE	"s0"
+#define	DISKUTIL_COMMAND	"/usr/sbin/diskutil"
 #else
 #define DISK_ROOT       "/dev/dsk"
 #define RDISK_ROOT      "/dev/rdsk"
@@ -149,14 +151,21 @@ libdiskmgt_error(int error)
 /*
  * Validate a device, passing the bulk of the work off to libdiskmgt.
  */
-int
+static int
 check_slice(const char *path, int force, boolean_t wholedisk, boolean_t isspare)
 {
 	char *msg;
 	int error = 0;
+	dm_who_type_t who;
 
-	if (dm_inuse((char *)path, &msg, isspare ? DM_WHO_ZPOOL_SPARE :
-	    (force ? DM_WHO_ZPOOL_FORCE : DM_WHO_ZPOOL), &error) || error) {
+	if (force)
+		who = DM_WHO_ZPOOL_FORCE;
+	else if (isspare)
+		who = DM_WHO_ZPOOL_SPARE;
+	else
+		who = DM_WHO_ZPOOL;
+
+	if (dm_inuse((char *)path, &msg, who, &error) || error) {
 		if (error != 0) {
 			libdiskmgt_error(error);
 			return (0);
@@ -265,7 +274,7 @@ check_disk(const char *name, dm_descriptor_t disk, int force, int isspare)
 /*
  * Validate a device.
  */
-int
+static int
 check_device(const char *path, boolean_t force, boolean_t isspare)
 {
 	dm_descriptor_t desc;
@@ -292,13 +301,15 @@ check_device(const char *path, boolean_t force, boolean_t isspare)
  * Check that a file is valid.  All we can do in this case is check that it's
  * not in use by another pool, and not in use by swap.
  */
-int
+static int
 check_file(const char *file, boolean_t force, boolean_t isspare)
 {
 	char  *name;
 	int fd;
 	int ret = 0;
+#ifndef __APPLE__
 	int err;
+#endif
 	pool_state_t state;
 	boolean_t inuse;
 
@@ -377,7 +388,9 @@ check_file(const char *file, boolean_t force, boolean_t isspare)
 static boolean_t
 is_whole_disk(const char *arg)
 {
+#ifndef __APPLE__
 	struct dk_gpt *label;
+#endif
 	int	fd;
 	char	path[MAXPATHLEN];
 
@@ -396,6 +409,136 @@ is_whole_disk(const char *arg)
 	return (B_TRUE);
 }
 
+#ifdef __APPLE__
+/*
+ * OS X: lay down the ZFS partition type onto this disk/partition
+ * Returns 0 iff diskutil exits without an error, -1 otherwise.
+ */
+static int
+write_gpt_label(char *path, char *newpath) {
+	char *node = NULL;
+	char *slice = NULL;
+	int pid;
+	int status;
+	int ret = -1;
+
+	assert(newpath);
+	*newpath = '\0';
+	node = strrchr(path, '/');
+
+	if (node) {
+		node++;	
+
+		if (strncmp(node, "disk", 4) == 0) {
+			node += 4;
+			slice = strchr(node, 's');
+
+			pid = fork();
+
+			if (pid == 0) {
+#ifndef ZFS_DEBUG
+				/* Suppress stdout for diskutil */
+				int err, fd;
+				err = close(1);
+				assert(err == 0);
+				fd = open("/dev/null", O_WRONLY);
+				assert(fd == 1);
+#endif
+				if (slice) {
+					/* We were given a partition, so do
+					 * diskutil eraseVolume ... */
+					(void) execl(DISKUTIL_COMMAND, 
+					             DISKUTIL_COMMAND,
+					             "eraseVolume",
+					             "ZFS",
+					             "%noformat%",
+					             path,
+					             NULL);
+				} else {
+					/* We were given a whole disk, so do
+					 * diskutil partitionDisk ... */
+					(void) execl(DISKUTIL_COMMAND, 
+					             DISKUTIL_COMMAND,
+					             "partitionDisk",
+					             path,
+					             "GPTFormat",
+					             "ZFS",
+					             "%noformat%",
+					             "100%",
+					             NULL);
+				}
+
+				exit(1);
+
+			} else if (pid != -1) {
+				waitpid(pid, &status, 0);
+				if (WIFEXITED(status)) {
+					if (WEXITSTATUS(status) == 0) {
+
+						/* Child exited successfully */
+						strlcpy(newpath, path, MAXPATHLEN);
+
+						if (!slice) {
+							/* 
+							 * If we were given a whole disk e.g. /dev/disk1,
+							 * we have now partitioned it. disk1s1 is the EFI
+							 * partition, so disk1s2 is the newly-created ZFS
+							 * partition. Return the new path to the caller.
+							 */
+
+							/* XXX: This is a fragile way of doing this! We
+							 * should programmatically determine the slice
+							 * number of the newly-created ZFS slice. There
+							 * are no guarantees that it will always be s2! */
+							strlcat(newpath, "s2", MAXPATHLEN);
+						}
+
+						ret = 0;
+					}
+				}
+			}
+		}
+	}
+
+	if (ret != 0) {
+		if (slice) {
+			fprintf(stderr, "could not change partition type of '%s':\n"
+			        "make sure the drive is formatted with the GPT partitioning "
+			        "scheme\n(see diskutil(8) for more information).\n", path);
+		} else {
+			fprintf(stderr, "could not change partition type of '%s':\n", path);
+		}
+	}
+
+	return (ret);
+}
+
+/*
+ * OS X: wipe any previously existing filesystems clean off the disk
+ */
+static int
+dowipefs(char *path)
+{
+	int fd;
+	int err;
+	wipefs_ctx wctx_handle = NULL;
+
+	if ((fd = open(path, O_WRONLY)) < 0 ) {
+		err = errno;
+		goto out;
+	}
+	/* pass in 0 for the sector size */
+	if ((err = wipefs_alloc(fd, 0, &wctx_handle)) != 0)
+		goto out;
+	if ((err = wipefs_wipe(wctx_handle)) != 0) 
+		goto out;
+out:
+	wipefs_free(&wctx_handle);
+	close(fd);
+	return (err);
+}
+#endif /* __APPLE__ */
+
 /*
  * Create a leaf vdev.  Determine if this is a file or a device.  If it's a
  * device, fill in the device id to make a complete nvlist.  Valid forms for a
@@ -409,7 +552,11 @@ static nvlist_t *
 make_leaf_vdev(const char *arg, uint64_t is_log)
 {
 	char path[MAXPATHLEN];
-	struct stat statbuf;
+#if _DARWIN_FEATURE_64_BIT_INODE
+	struct stat statbuf;    
+#else
+	struct stat64 statbuf;
+#endif
 	nvlist_t *vdev = NULL;
 	char *type = NULL;
 	boolean_t wholedisk = B_FALSE;
@@ -425,7 +572,11 @@ make_leaf_vdev(const char *arg, uint64_t is_log)
 		 * examining the file descriptor afterwards.
 		 */
 		wholedisk = is_whole_disk(arg);
+#if _DARWIN_FEATURE_64_BIT_INODE
 		if (!wholedisk && (stat(arg, &statbuf) != 0)) {
+#else
+		if (!wholedisk && (stat64(arg, &statbuf) != 0)) {            
+#endif
 			(void) fprintf(stderr,
 			    gettext("cannot open '%s': %s\n"),
 			    arg, strerror(errno));
@@ -443,7 +594,11 @@ make_leaf_vdev(const char *arg, uint64_t is_log)
 		(void) snprintf(path, sizeof (path), "%s/%s", DISK_ROOT,
 		    arg);
 		wholedisk = is_whole_disk(path);
+#if _DARWIN_FEATURE_64_BIT_INODE
 		if (!wholedisk && (stat(path, &statbuf) != 0)) {
+#else
+		if (!wholedisk && (stat64(path, &statbuf) != 0)) {
+#endif
 			/*
 			 * If we got ENOENT, then the user gave us
 			 * gibberish, so try to direct them with a
@@ -473,6 +628,56 @@ make_leaf_vdev(const char *arg, uint64_t is_log)
 	 */
 	if (wholedisk || S_ISBLK(statbuf.st_mode)) {
 		type = VDEV_TYPE_DISK;
+#ifdef __APPLE__
+		int err;
+		char newpath[MAXPATHLEN];
+
+		/*
+		 * Preflight check for root before wiping the device. dev nodes for
+		 * removable drives can be writable by non-root users, but zpool
+		 * create still requires root so it's better to be nondestructive if
+		 * the operation is going to fail.
+		 */
+		if (geteuid() != 0) {
+			fprintf(stderr, "this command must be run as root\n");
+			return (NULL);
+		}
+
+		err = dowipefs(path);
+
+		if (err) {
+			if (err == EBUSY) {
+				fprintf(stderr, "could not erase '%s': device in use.\n"
+				    "unmount any filesystem(s) on the device and try "
+				    "again.\n", path);
+			} else {
+				fprintf(stderr, "could not erase '%s': %s\n", path, strerror(err));
+			}
+			return (NULL);
+		}
+
+		if (write_gpt_label(path, newpath) != 0) {
+			/* If we fail to change the partition type to ZFS, it's better to
+			 * fail. Otherwise we end up with ZFS pools on HFS partitions
+			 * which don't play nice with IOMedia. */
+			return (NULL);
+		}
+
+		/* Make sure the new path is valid. */
+#if _DARWIN_FEATURE_64_BIT_INODE
+		if (stat(newpath, &statbuf) != 0) {
+#else
+		if (stat64(newpath, &statbuf) != 0) {
+#endif
+			(void) fprintf(stderr,
+			    "after partitioning '%s', could not open '%s': %s\n",
+			    path, newpath, strerror(errno));
+			return (NULL);
+		}
+
+		strlcpy(path, newpath, MAXPATHLEN);
+		wholedisk = B_FALSE;
+#endif
 	} else if (S_ISREG(statbuf.st_mode)) {
 		type = VDEV_TYPE_FILE;
 	} else {
@@ -634,7 +839,11 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 			for (c = 0; c < children; c++) {
 				nvlist_t *cnv = child[c];
 				char *path;
+#if _DARWIN_FEATURE_64_BIT_INODE                
 				struct stat statbuf;
+#else
+				struct stat64 statbuf;                
+#endif
 				uint64_t size = -1ULL;
 				char *childtype;
 				int fd, err;
@@ -704,10 +913,18 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 				 * this device altogether.
 				 */
 				if ((fd = open(path, O_RDONLY)) >= 0) {
+#if _DARWIN_FEATURE_64_BIT_INODE                
 					err = fstat(fd, &statbuf);
+#else
+					err = fstat64(fd, &statbuf);
+#endif
 					(void) close(fd);
 				} else {
+#if _DARWIN_FEATURE_64_BIT_INODE                
 					err = stat(path, &statbuf);
+#else
+					err = stat64(path, &statbuf);                    
+#endif
 				}
 
 				if (err != 0 ||
@@ -990,6 +1207,12 @@ make_disks(zpool_handle_t *zhp, nvlist_t *nv)
 			if ((ret = make_disks(zhp, child[c])) != 0)
 				return (ret);
 
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_L2CACHE,
+	    &child, &children) == 0)
+		for (c = 0; c < children; c++)
+			if ((ret = make_disks(zhp, child[c])) != 0)
+				return (ret);
+
 	return (0);
 }
 
@@ -1047,7 +1270,7 @@ is_spare(nvlist_t *config, const char *path)
  * Go through and find any devices that are in use.  We rely on libdiskmgt for
  * the majority of this task.
  */
-int
+static int
 check_in_use(nvlist_t *config, nvlist_t *nv, int force, int isreplacing,
     int isspare)
 {
@@ -1103,6 +1326,13 @@ check_in_use(nvlist_t *config, nvlist_t *nv, int force, int isreplacing,
 			    isreplacing, B_TRUE)) != 0)
 				return (ret);
 
+	if (nvlist_lookup_nvlist_array(nv, ZPOOL_CONFIG_L2CACHE,
+	    &child, &children) == 0)
+		for (c = 0; c < children; c++)
+			if ((ret = check_in_use(config, child[c], force,
+			    isreplacing, B_FALSE)) != 0)
+				return (ret);
+
 #endif
 	return (0);
 }
@@ -1140,6 +1370,12 @@ is_grouping(const char *type, int *mindev)
 		return (VDEV_TYPE_LOG);
 	}
 
+	if (strcmp(type, "cache") == 0) {
+		if (mindev != NULL)
+			*mindev = 1;
+		return (VDEV_TYPE_L2CACHE);
+	}
+
 	return (NULL);
 }
 
@@ -1152,8 +1388,8 @@ is_grouping(const char *type, int *mindev)
 nvlist_t *
 construct_spec(int argc, char **argv)
 {
-	nvlist_t *nvroot, *nv, **top, **spares;
-	int t, toplevels, mindev, nspares, nlogs;
+	nvlist_t *nvroot, *nv, **top, **spares, **l2cache;
+	int t, toplevels, mindev, nspares, nlogs, nl2cache;
 	const char *type;
 	uint64_t is_log;
 	boolean_t seen_logs;
@@ -1161,8 +1397,10 @@ construct_spec(int argc, char **argv)
 	top = NULL;
 	toplevels = 0;
 	spares = NULL;
+	l2cache = NULL;
 	nspares = 0;
 	nlogs = 0;
+	nl2cache = 0;
 	is_log = B_FALSE;
 	seen_logs = B_FALSE;
 
@@ -1207,6 +1445,17 @@ construct_spec(int argc, char **argv)
 				continue;
 			}
 
+			if (strcmp(type, VDEV_TYPE_L2CACHE) == 0) {
+				if (l2cache != NULL) {
+					(void) fprintf(stderr,
+					    gettext("invalid vdev "
+					    "specification: 'cache' can be "
+					    "specified only once\n"));
+					return (NULL);
+				}
+				is_log = B_FALSE;
+			}
+
 			if (is_log) {
 				if (strcmp(type, VDEV_TYPE_MIRROR) != 0) {
 					(void) fprintf(stderr,
@@ -1245,6 +1494,10 @@ construct_spec(int argc, char **argv)
 			if (strcmp(type, VDEV_TYPE_SPARE) == 0) {
 				spares = child;
 				nspares = children;
+				continue;
+			} else if (strcmp(type, VDEV_TYPE_L2CACHE) == 0) {
+				l2cache = child;
+				nl2cache = children;
 				continue;
 			} else {
 				verify(nvlist_alloc(&nv, NV_UNIQUE_NAME,
@@ -1286,7 +1539,7 @@ construct_spec(int argc, char **argv)
 		top[toplevels - 1] = nv;
 	}
 
-	if (toplevels == 0 && nspares == 0) {
+	if (toplevels == 0 && nspares == 0 && nl2cache == 0) {
 		(void) fprintf(stderr, gettext("invalid vdev "
 		    "specification: at least one toplevel vdev must be "
 		    "specified\n"));
@@ -1310,13 +1563,20 @@ construct_spec(int argc, char **argv)
 	if (nspares != 0)
 		verify(nvlist_add_nvlist_array(nvroot, ZPOOL_CONFIG_SPARES,
 		    spares, nspares) == 0);
+	if (nl2cache != 0)
+		verify(nvlist_add_nvlist_array(nvroot, ZPOOL_CONFIG_L2CACHE,
+		    l2cache, nl2cache) == 0);
 
 	for (t = 0; t < toplevels; t++)
 		nvlist_free(top[t]);
 	for (t = 0; t < nspares; t++)
 		nvlist_free(spares[t]);
+	for (t = 0; t < nl2cache; t++)
+		nvlist_free(l2cache[t]);
 	if (spares)
 		free(spares);
+	if (l2cache)
+		free(l2cache);
 	free(top);
 
 	return (nvroot);

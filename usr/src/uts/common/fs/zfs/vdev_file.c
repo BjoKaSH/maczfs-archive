@@ -19,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ *
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -33,22 +34,19 @@
 #include <sys/vdev_impl.h>
 #include <sys/zio.h>
 #include <sys/fs/zfs.h>
+#include <sys/fm/fs/zfs.h>
 
 /*
  * Virtual device vector for files.
  */
 
 static int
-vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
+vdev_file_open_common(vdev_t *vd)
 {
 	vdev_file_t *vf;
-#ifdef __APPLE__
-	struct vnode *vp, *rootdir;
-	struct vnode_attr vattr;
-	vfs_context_t context;
-#else
 	vnode_t *vp;
-	vattr_t vattr;
+#ifdef __APPLE__
+	vnode_t *rootdir;
 #endif
 	int error;
 
@@ -69,12 +67,13 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	 * to local zone users, so the underlying devices should be as well.
 	 */
 	ASSERT(vd->vdev_path != NULL && vd->vdev_path[0] == '/');
+
 #ifdef __APPLE__
 	rootdir = getrootdir();
 #endif
-	error = vn_openat(vd->vdev_path + 1, UIO_SYSSPACE, spa_mode | FOFFMAX,
-	    0, &vp, 0, 0, rootdir);
-	
+	error = vn_openat(vd->vdev_path + 1, UIO_SYSSPACE,
+	    spa_mode | FOFFMAX, 0, &vp, 0, 0, rootdir);
+
 	if (error) {
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
 		return (error);
@@ -96,33 +95,32 @@ vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
 	}
 #endif
 
+	return (0);
+}
+
+static int
+vdev_file_open(vdev_t *vd, uint64_t *psize, uint64_t *ashift)
+{
+	vdev_file_t *vf;
+	vattr_t vattr;
+	int error;
+
+	if ((error = vdev_file_open_common(vd)) != 0)
+		return (error);
+
+	vf = vd->vdev_tsd;
+
 	/*
 	 * Determine the physical size of the file.
 	 */
-#ifdef __APPLE__
-	VATTR_INIT(&vattr);
-	VATTR_WANTED(&vattr, va_data_size);
-
-	context = vfs_context_create((vfs_context_t)0);
-	error = vnode_getattr(vp, &vattr, context);
-	(void) vfs_context_rele(context);
-
-	if (error || !VATTR_IS_SUPPORTED(&vattr, va_data_size)) {
-		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
-		return (error);
-	}
-
-	*psize = vattr.va_data_size;
-#else
 	vattr.va_mask = AT_SIZE;
-	error = VOP_GETATTR(vp, &vattr, 0, kcred);
+	error = VOP_GETATTR(vf->vf_vnode, &vattr, 0, kcred, NULL);
 	if (error) {
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
 		return (error);
 	}
 
 	*psize = vattr.va_size;
-#endif
 	*ashift = SPA_MINBLOCKSHIFT;
 
 	return (0);
@@ -137,26 +135,55 @@ vdev_file_close(vdev_t *vd)
 		return;
 
 	if (vf->vf_vnode != NULL) {
-#ifdef __APPLE__
-		vfs_context_t context;
-
-		context = vfs_context_create((vfs_context_t)0);
-		/* ### APPLE TODO #### */
-	//	(void) VOP_PUTPAGE(vf->vf_vnode, 0, 0, B_INVAL, kcred);
-		(void) vnode_close(vf->vf_vnode, spa_mode, context);
-		(void) vfs_context_rele(context);
-#else
-		(void) VOP_PUTPAGE(vf->vf_vnode, 0, 0, B_INVAL, kcred);
-		(void) VOP_CLOSE(vf->vf_vnode, spa_mode, 1, 0, kcred);
+		(void) VOP_PUTPAGE(vf->vf_vnode, 0, 0, B_INVAL, kcred, NULL);
+		(void) VOP_CLOSE(vf->vf_vnode, spa_mode, 1, 0, kcred, NULL);
+#ifndef __APPLE__
 		VN_RELE(vf->vf_vnode);
-#endif
+#endif /* !__APPLE__ */
 	}
 
 	kmem_free(vf, sizeof (vdev_file_t));
 	vd->vdev_tsd = NULL;
 }
 
-static void
+static int
+vdev_file_probe_io(vdev_t *vd, caddr_t data, size_t size, uint64_t offset,
+    enum uio_rw rw)
+{
+	vdev_file_t *vf = vd ? vd->vdev_tsd : NULL;
+	ssize_t resid;
+	int error = 0;
+
+	if (vd == NULL || vf == NULL || vf->vf_vnode == NULL)
+		return (EINVAL);
+
+	ASSERT(rw == UIO_READ || rw ==  UIO_WRITE);
+
+	error = vn_rdwr(rw, vf->vf_vnode, data, size, offset, UIO_SYSSPACE,
+	    0, RLIM64_INFINITY, kcred, &resid);
+
+	if (error || resid != 0)
+		return (EIO);
+
+	if (zio_injection_enabled)
+		error = zio_handle_device_injection(vd, EIO);
+
+	return (error);
+}
+
+/*
+ * Determine if the underlying device is accessible by reading and writing
+ * to a known location. We must be able to do this during syncing context
+ * and thus we cannot set the vdev state directly.
+ */
+static int
+vdev_file_probe(vdev_t *vd)
+{
+	/* coming soon... */
+	return (0);
+}
+
+static int
 vdev_file_io_start(zio_t *zio)
 {
 	vdev_t *vd = zio->io_vd;
@@ -168,16 +195,15 @@ vdev_file_io_start(zio_t *zio)
 		zio_vdev_io_bypass(zio);
 
 		/* XXPOLICY */
-		if (vdev_is_dead(vd)) {
+		if (!vdev_readable(vd)) {
 			zio->io_error = ENXIO;
-			zio_next_stage_async(zio);
-			return;
+			return (ZIO_PIPELINE_CONTINUE);
 		}
 
 		switch (zio->io_cmd) {
 		case DKIOCFLUSHWRITECACHE:
 			zio->io_error = VOP_FSYNC(vf->vf_vnode, FSYNC | FDSYNC,
-			    kcred);
+			    kcred, NULL);
 			dprintf("fsync(%s) = %d\n", vdev_description(vd),
 			    zio->io_error);
 			break;
@@ -185,8 +211,7 @@ vdev_file_io_start(zio_t *zio)
 			zio->io_error = ENOTSUP;
 		}
 
-		zio_next_stage_async(zio);
-		return;
+		return (ZIO_PIPELINE_CONTINUE);
 	}
 
 	/*
@@ -195,42 +220,72 @@ vdev_file_io_start(zio_t *zio)
 	 */
 #ifndef _KERNEL
 	if (zio->io_type == ZIO_TYPE_READ && vdev_cache_read(zio) == 0)
-		return;
+		return (ZIO_PIPELINE_STOP);
 #endif
 
 	if ((zio = vdev_queue_io(zio)) == NULL)
-		return;
+		return (ZIO_PIPELINE_STOP);
 
 	/* XXPOLICY */
-	error = vdev_is_dead(vd) ? ENXIO : vdev_error_inject(vd, zio);
+	if (zio->io_type == ZIO_TYPE_WRITE)
+		error = vdev_writeable(vd) ? vdev_error_inject(vd, zio) : ENXIO;
+	else
+		error = vdev_readable(vd) ? vdev_error_inject(vd, zio) : ENXIO;
+	error = (vd->vdev_remove_wanted || vd->vdev_is_failing) ? ENXIO : error;
 	if (error) {
 		zio->io_error = error;
-		zio_next_stage_async(zio);
-		return;
+		zio_interrupt(zio);
+		return (ZIO_PIPELINE_STOP);
 	}
 
-#ifdef ZFS_READONLY_KEXT
-	if (zio->io_type == ZIO_TYPE_WRITE) {
-		zio->io_error = 0;
-		zio_next_stage_async(zio);
-		return;
+#ifdef __APPLE_KERNEL__
+	char *p;
+	if (zio->io_uplinfo != NULL) {
+		p = getuplvaddr(zio->io_uplinfo, FALSE/*for_read*/) +
+			(zio->io_uplinfo->ui_f_off - upli_sharedupl(zio->io_uplinfo)->su_upl_f_off);
+	} else {
+		p = zio->io_data;
 	}
-#endif /* ZFS_READONLY_KEXT */
-
+	zio->io_error = vn_rdwr(zio->io_type == ZIO_TYPE_READ ?
+	    UIO_READ : UIO_WRITE, vf->vf_vnode, p,
+	    zio->io_size, zio->io_offset, UIO_SYSSPACE,
+	    0, RLIM64_INFINITY, kcred, &resid);
+#else
 	zio->io_error = vn_rdwr(zio->io_type == ZIO_TYPE_READ ?
 	    UIO_READ : UIO_WRITE, vf->vf_vnode, zio->io_data,
 	    zio->io_size, zio->io_offset, UIO_SYSSPACE,
 	    0, RLIM64_INFINITY, kcred, &resid);
-
+#endif
 	if (resid != 0 && zio->io_error == 0)
 		zio->io_error = ENOSPC;
 
-	zio_next_stage_async(zio);
+	zio_interrupt(zio);
+
+	return (ZIO_PIPELINE_STOP);
 }
 
-static void
+static int
 vdev_file_io_done(zio_t *zio)
 {
+	vdev_t *vd = zio->io_vd;
+
+	if (zio_injection_enabled && zio->io_error == 0)
+		zio->io_error = zio_handle_device_injection(vd, EIO);
+
+	/*
+	 * If an error has been encountered then attempt to probe the device
+	 * to determine if it's still accessible.
+	 */
+	if (zio->io_error == EIO && vdev_probe(vd) != 0) {
+		if (!vd->vdev_is_failing) {
+			vd->vdev_is_failing = B_TRUE;
+#ifndef __APPLE__
+			zfs_ereport_post(FM_EREPORT_ZFS_PROBE_FAILURE,
+			    vd->vdev_spa, vd, zio, 0, 0);
+#endif /* !__APPLE__ */
+		}
+	}
+
 	vdev_queue_io_done(zio);
 
 #ifndef _KERNEL
@@ -238,15 +293,13 @@ vdev_file_io_done(zio_t *zio)
 		vdev_cache_write(zio);
 #endif
 
-	if (zio_injection_enabled && zio->io_error == 0)
-		zio->io_error = zio_handle_device_injection(zio->io_vd, EIO);
-
-	zio_next_stage(zio);
+	return (ZIO_PIPELINE_CONTINUE);
 }
 
 vdev_ops_t vdev_file_ops = {
 	vdev_file_open,
 	vdev_file_close,
+	vdev_file_probe,
 	vdev_default_asize,
 	vdev_file_io_start,
 	vdev_file_io_done,
@@ -263,6 +316,7 @@ vdev_ops_t vdev_file_ops = {
 vdev_ops_t vdev_disk_ops = {
 	vdev_file_open,
 	vdev_file_close,
+	vdev_file_probe,
 	vdev_default_asize,
 	vdev_file_io_start,
 	vdev_file_io_done,

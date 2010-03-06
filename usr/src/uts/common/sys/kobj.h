@@ -32,7 +32,7 @@
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 #include <sys/types.h>
-#include <sys/vnode.h>
+#include <sys/zfs_vnode.h>
 
 #ifdef _KERNEL
 
@@ -40,7 +40,7 @@
  * kobj file access
  */
 struct _buf {
-	struct vnode *	 _fd;
+	vnode_t *	 _fd;
 };
 
 struct bootstat {
@@ -52,7 +52,7 @@ extern struct _buf *  kobj_open_file(char *);
 extern void  kobj_close_file(struct _buf *);
 extern int  kobj_read_file(struct _buf *, char *, unsigned, unsigned);
 extern int kobj_get_filesize(struct _buf *, uint64_t *size);
-extern int  kobj_fstat(struct vnode *, struct bootstat *);
+extern int  kobj_fstat(vnode_t *, struct bootstat *);
 
 #endif
 

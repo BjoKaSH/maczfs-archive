@@ -19,7 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
+ *
+ * Portions Copyright 2009 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -44,7 +47,7 @@ typedef struct dsl_dir_phys {
 	uint64_t dd_creation_time; /* not actually used */
 	uint64_t dd_head_dataset_obj;
 	uint64_t dd_parent_obj;
-	uint64_t dd_clone_parent_obj;
+	uint64_t dd_origin_obj;
 	uint64_t dd_child_dir_zapobj;
 	/*
 	 * how much space our children are accounting for; for leaf
@@ -100,8 +103,8 @@ int dsl_dir_open_obj(dsl_pool_t *dp, uint64_t ddobj,
 void dsl_dir_name(dsl_dir_t *dd, char *buf);
 int dsl_dir_namelen(dsl_dir_t *dd);
 int dsl_dir_is_private(dsl_dir_t *dd);
-uint64_t dsl_dir_create_sync(dsl_dir_t *pds, const char *name, dmu_tx_t *tx);
-void dsl_dir_create_root(objset_t *mos, uint64_t *ddobjp, dmu_tx_t *tx);
+uint64_t dsl_dir_create_sync(dsl_pool_t *dp, dsl_dir_t *pds,
+    const char *name, dmu_tx_t *tx);
 dsl_checkfunc_t dsl_dir_destroy_check;
 dsl_syncfunc_t dsl_dir_destroy_sync;
 void dsl_dir_stats(dsl_dir_t *dd, nvlist_t *nv);
@@ -110,18 +113,28 @@ uint64_t dsl_dir_space_available(dsl_dir_t *dd,
 void dsl_dir_dirty(dsl_dir_t *dd, dmu_tx_t *tx);
 void dsl_dir_sync(dsl_dir_t *dd, dmu_tx_t *tx);
 int dsl_dir_tempreserve_space(dsl_dir_t *dd, uint64_t mem,
-    uint64_t asize, uint64_t fsize, void **tr_cookiep, dmu_tx_t *tx);
+    uint64_t asize, uint64_t fsize, uint64_t usize, void **tr_cookiep,
+    dmu_tx_t *tx);
 void dsl_dir_tempreserve_clear(void *tr_cookie, dmu_tx_t *tx);
 void dsl_dir_willuse_space(dsl_dir_t *dd, int64_t space, dmu_tx_t *tx);
 void dsl_dir_diduse_space(dsl_dir_t *dd,
     int64_t used, int64_t compressed, int64_t uncompressed, dmu_tx_t *tx);
 int dsl_dir_set_quota(const char *ddname, uint64_t quota);
 int dsl_dir_set_reservation(const char *ddname, uint64_t reservation);
+
+#ifdef __APPLE__
+int dsl_dir_rename(dsl_dir_t *dd, const char *newname, boolean_t online);
+#else
 int dsl_dir_rename(dsl_dir_t *dd, const char *newname);
+#endif /* __APPLE__ */
+
 int dsl_dir_transfer_possible(dsl_dir_t *sdd, dsl_dir_t *tdd, uint64_t space);
+int dsl_dir_set_reservation_check(void *arg1, void *arg2, dmu_tx_t *tx);
+boolean_t dsl_dir_is_clone(dsl_dir_t *dd);
 
 /* internal reserved dir name */
 #define	MOS_DIR_NAME "$MOS"
+#define	ORIGIN_DIR_NAME "$ORIGIN"
 
 #ifdef ZFS_DEBUG
 #define	dprintf_dd(dd, fmt, ...) do { \

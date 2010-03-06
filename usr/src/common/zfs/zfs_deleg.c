@@ -19,10 +19,12 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
-
+/* Portions Copyright 2007-2008 Apple Inc. All rights reserved.
+ * Use is subject to license terms.
+ */
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
@@ -30,6 +32,7 @@
 #include <sys/systm.h>
 #ifndef __APPLE__
 #include <sys/sunddi.h>
+#include <sys/ctype.h>
 #endif /*!__APPLE__*/
 #else
 #include <stdio.h>
@@ -46,23 +49,28 @@
 
 /*
  * permission table
+ *
+ * Keep this table in sorted order
+ *
+ * This table is used for displaying all permissions for
+ * zfs allow
  */
 
-char *zfs_deleg_perm_tab[] = {
-	ZFS_DELEG_PERM_CREATE,
-	ZFS_DELEG_PERM_DESTROY,
-	ZFS_DELEG_PERM_SNAPSHOT,
-	ZFS_DELEG_PERM_ROLLBACK,
-	ZFS_DELEG_PERM_CLONE,
-	ZFS_DELEG_PERM_PROMOTE,
-	ZFS_DELEG_PERM_RENAME,
-	ZFS_DELEG_PERM_MOUNT,
-	ZFS_DELEG_PERM_SHARE,
-	ZFS_DELEG_PERM_SEND,
-	ZFS_DELEG_PERM_RECEIVE,
-	ZFS_DELEG_PERM_ALLOW,
-	ZFS_DELEG_PERM_USERPROP,
-	NULL
+zfs_deleg_perm_tab_t zfs_deleg_perm_tab[] = {
+	{ZFS_DELEG_PERM_ALLOW, ZFS_DELEG_NOTE_ALLOW},
+	{ZFS_DELEG_PERM_CLONE, ZFS_DELEG_NOTE_CLONE },
+	{ZFS_DELEG_PERM_CREATE, ZFS_DELEG_NOTE_CREATE },
+	{ZFS_DELEG_PERM_DESTROY, ZFS_DELEG_NOTE_DESTROY },
+	{ZFS_DELEG_PERM_MOUNT, ZFS_DELEG_NOTE_MOUNT },
+	{ZFS_DELEG_PERM_PROMOTE, ZFS_DELEG_NOTE_PROMOTE },
+	{ZFS_DELEG_PERM_RECEIVE, ZFS_DELEG_NOTE_RECEIVE },
+	{ZFS_DELEG_PERM_RENAME, ZFS_DELEG_NOTE_RENAME },
+	{ZFS_DELEG_PERM_ROLLBACK, ZFS_DELEG_NOTE_ROLLBACK },
+	{ZFS_DELEG_PERM_SNAPSHOT, ZFS_DELEG_NOTE_SNAPSHOT },
+	{ZFS_DELEG_PERM_SHARE, ZFS_DELEG_NOTE_SHARE },
+	{ZFS_DELEG_PERM_SEND, ZFS_DELEG_NOTE_NONE },
+	{ZFS_DELEG_PERM_USERPROP, ZFS_DELEG_NOTE_USERPROP },
+	{NULL, ZFS_DELEG_NOTE_NONE }
 };
 
 static int
@@ -80,13 +88,13 @@ zfs_deleg_canonicalize_perm(const char *perm)
 	int i;
 	zfs_prop_t prop;
 
-	for (i = 0; zfs_deleg_perm_tab[i] != NULL; i++) {
-		if (strcmp(perm, zfs_deleg_perm_tab[i]) == 0)
+	for (i = 0; zfs_deleg_perm_tab[i].z_perm != NULL; i++) {
+		if (strcmp(perm, zfs_deleg_perm_tab[i].z_perm) == 0)
 			return (perm);
 	}
 
 	prop = zfs_name_to_prop(perm);
-	if (prop != ZFS_PROP_INVAL && zfs_prop_delegatable(prop))
+	if (prop != ZPROP_INVAL && zfs_prop_delegatable(prop))
 		return (zfs_prop_to_name(prop));
 	return (NULL);
 
@@ -108,11 +116,8 @@ zfs_validate_who(char *who)
 		if (who[1] != ZFS_DELEG_LOCAL && who[1] != ZFS_DELEG_DESCENDENT)
 			return (-1);
 		for (p = &who[3]; *p; p++)
-/*Need a isdigit defined for kernel space*/
-#ifndef __APPLE__
 			if (!isdigit(*p))
 				return (-1);
-#endif
 		break;
 
 	case ZFS_DELEG_NAMED_SET:

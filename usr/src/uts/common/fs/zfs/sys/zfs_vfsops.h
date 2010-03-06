@@ -19,9 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ *
+ * Portions Copyright 2007-2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -30,16 +31,27 @@
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
-#ifndef __APPLE__
 #include <sys/isa_defs.h>
 #include <sys/types32.h>
-#endif
 #include <sys/list.h>
 #include <sys/vfs.h>
 #include <sys/zil.h>
+#include <sys/rrwlock.h>
+#include <sys/zfs_ioctl.h>
 
 #ifdef	__cplusplus
 extern "C" {
+#endif
+
+#ifdef __APPLE__
+typedef struct zfssearch {
+	char snappath[MAXPATHLEN];	/* snapshot name */
+	uint64_t search_pended_time; /* time that this pending search structure expires*/
+	uint64_t sequence;			/* sequence number so it can be identified from userland */
+	zbookmark_t bookmark;		/* bookmark for validation they have the right struct */
+	int resumption_index;		/* so we know where to start the for loop in the callback fxn */
+	list_node_t z_search_link; /* all pending zfs search queries link */
+} zfssearch_t;
 #endif
 
 typedef struct zfsvfs zfsvfs_t;
@@ -52,28 +64,44 @@ struct zfsvfs {
 	uint64_t	z_unlinkedobj;	/* id of unlinked zapobj */
 	uint64_t	z_max_blksz;	/* maximum block size for files */
 	uint64_t	z_assign;	/* TXG_NOWAIT or set by zil_replay() */
+	uint64_t	z_fuid_obj;	/* fuid table object number */
+	uint64_t	z_fuid_size;	/* fuid table size */
+	avl_tree_t	z_fuid_idx;	/* fuid tree keyed by index */
+	avl_tree_t	z_fuid_domain;	/* fuid tree keyed by domain */
+	krwlock_t	z_fuid_lock;	/* fuid lock */
+	boolean_t	z_fuid_loaded;	/* fuid tables are loaded */
+	struct zfs_fuid_info	*z_fuid_replay; /* fuid info for replay */
 	zilog_t		*z_log;		/* intent log pointer */
 	uint_t		z_acl_mode;	/* acl chmod/mode behavior */
 	uint_t		z_acl_inherit;	/* acl inheritance behavior */
+	zfs_case_t	z_case;		/* case-sense */
+	boolean_t	z_utf8;		/* utf8-only */
+	int		z_norm;		/* normalization flags */
 	boolean_t	z_atime;	/* enable atimes mount option */
 	boolean_t	z_unmounted;	/* unmounted */
-	krwlock_t	z_unmount_lock;
-	krwlock_t	z_unmount_inactive_lock;
+	rrwlock_t	z_teardown_lock;
+	krwlock_t	z_teardown_inactive_lock;
 	list_t		z_all_znodes;	/* all vnodes in the fs */
 	kmutex_t	z_znodes_lock;	/* lock for z_all_znodes */
-
+	vnode_t		*z_ctldir;	/* .zfs directory pointer */
 #ifdef __APPLE__
-	struct vnode	*z_ctldir;		/* .zfs directory pointer */
-	time_t		z_mount_time;		/* mount timestamp (for Spotlight) */	
+	time_t		z_mount_time;		/* mount timestamp (for Spotlight) */
 	time_t		z_last_unmount_time;	/* unmount timestamp (for Spotlight) */
 	time_t		z_last_mtime_synced;	/* last fs mtime synced to disk */
-	struct vnode	*z_mtime_vp;		/* znode utilized for the fs mtime. */
-#else
-	vnode_t		*z_ctldir;	/* .zfs directory pointer */
+	vnode_t		*z_mtime_vp;		/* znode utilized for the fs mtime. */
+	kmutex_t	z_rename_lock;		/* serialize dataset renames */
+	kmutex_t	z_search_mtx;		/* mutex for search synchronization */
+	kcondvar_t	z_search_cv;		/* condition variable for search synchronization */
+	kthread_t*  z_search_cleanup;		/* whether or not we have a cleanup thread for this zfsvfs */
+	list_t		z_search_pending;	/* pending search calls that may need to be cleaned up */
+	uint64_t 	z_search_seq;		/* sequence number for next invocation to search ZFS */
 #endif
 	boolean_t	z_show_ctldir;	/* expose .zfs in the root dir */
 	boolean_t	z_issnap;	/* true if this is a snapshot */
-	uint64_t	z_version;
+	boolean_t	z_vscan;	/* virus scan on/off */
+	boolean_t	z_use_fuids;	/* version allows fuids */
+	kmutex_t	z_online_recv_lock; /* recv in prog grabs as WRITER */
+	uint64_t	z_version;	/* ZPL version */
 #define	ZFS_OBJ_MTX_SZ	64
 	kmutex_t	z_hold_mtx[ZFS_OBJ_MTX_SZ];	/* znode hold locks */
 };
@@ -129,6 +157,18 @@ typedef struct zfid_long {
 #ifndef __APPLE__
 /*Only used by zil code with tsd access functions*/
 extern uint_t zfs_fsyncer_key;
+#endif
+
+extern int zfs_suspend_fs(zfsvfs_t *zfsvfs, char *osname, int *mode);
+extern int zfs_resume_fs(zfsvfs_t *zfsvfs, const char *osname, int mode);
+
+#ifdef __APPLE__
+extern void zfs_get_fsname(zfsvfs_t *, char *);
+extern int  zfs_vfs_sync (struct mount *mp, int waitfor, vfs_context_t context);
+
+/* OS X - case insensitive file systems always perform ZCILOOK */ 
+#define ZFS_IGNORECASE(zfsvfs) \
+	(zfsvfs->z_case == ZFS_CASE_INSENSITIVE)
 #endif
 
 #ifdef	__cplusplus

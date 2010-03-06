@@ -22,6 +22,9 @@
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
+/* Portions Copyright 2007-2009 Apple Inc. All rights reserved.
+ * Use is subject to license terms.
+ */
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
@@ -53,11 +56,19 @@ int zfs_vdev_ramp_rate = 2;
  * i/os will be aggregated into a single large i/o up to
  * zfs_vdev_aggregation_limit bytes long.
  */
+#ifdef __APPLE__
+/* OS X - due to UBC integration - do not aggregate I/Os at all */
+int zfs_vdev_aggregation_limit = 0;
+#else
 int zfs_vdev_aggregation_limit = SPA_MAXBLOCKSIZE;
+#endif
 
 /*
  * Virtual device vector for disk I/O scheduling.
  */
+#ifdef __APPLE__
+static
+#endif
 int
 vdev_queue_deadline_compare(const void *x1, const void *x2)
 {
@@ -82,6 +93,9 @@ vdev_queue_deadline_compare(const void *x1, const void *x2)
 	return (0);
 }
 
+#ifdef __APPLE__
+static
+#endif
 int
 vdev_queue_offset_compare(const void *x1, const void *x2)
 {
@@ -162,7 +176,7 @@ vdev_queue_agg_io_done(zio_t *aio)
 		aio->io_delegate_list = dio->io_delegate_next;
 		dio->io_delegate_next = NULL;
 		dio->io_error = aio->io_error;
-		zio_next_stage(dio);
+		zio_execute(dio);
 	}
 	ASSERT3U(offset, ==, aio->io_size);
 
@@ -172,19 +186,14 @@ vdev_queue_agg_io_done(zio_t *aio)
 #define	IS_ADJACENT(io, nio) \
 	((io)->io_offset + (io)->io_size == (nio)->io_offset)
 
-typedef void zio_issue_func_t(zio_t *);
-
 static zio_t *
-vdev_queue_io_to_issue(vdev_queue_t *vq, uint64_t pending_limit,
-	zio_issue_func_t **funcp)
+vdev_queue_io_to_issue(vdev_queue_t *vq, uint64_t pending_limit)
 {
 	zio_t *fio, *lio, *aio, *dio;
 	avl_tree_t *tree;
 	uint64_t size;
 
 	ASSERT(MUTEX_HELD(&vq->vq_lock));
-
-	*funcp = NULL;
 
 	if (avl_numnodes(&vq->vq_pending_tree) >= pending_limit ||
 	    avl_numnodes(&vq->vq_deadline_tree) == 0)
@@ -245,7 +254,6 @@ vdev_queue_io_to_issue(vdev_queue_t *vq, uint64_t pending_limit,
 
 		avl_add(&vq->vq_pending_tree, aio);
 
-		*funcp = zio_nowait;
 		return (aio);
 	}
 
@@ -253,8 +261,6 @@ vdev_queue_io_to_issue(vdev_queue_t *vq, uint64_t pending_limit,
 	vdev_queue_io_remove(vq, fio);
 
 	avl_add(&vq->vq_pending_tree, fio);
-
-	*funcp = zio_next_stage;
 
 	return (fio);
 }
@@ -264,7 +270,6 @@ vdev_queue_io(zio_t *zio)
 {
 	vdev_queue_t *vq = &zio->io_vd->vdev_queue;
 	zio_t *nio;
-	zio_issue_func_t *func;
 
 	ASSERT(zio->io_type == ZIO_TYPE_READ || zio->io_type == ZIO_TYPE_WRITE);
 
@@ -285,15 +290,19 @@ vdev_queue_io(zio_t *zio)
 
 	vdev_queue_io_add(vq, zio);
 
-	nio = vdev_queue_io_to_issue(vq, zfs_vdev_min_pending, &func);
+	nio = vdev_queue_io_to_issue(vq, zfs_vdev_min_pending);
 
 	mutex_exit(&vq->vq_lock);
 
-	if (nio == NULL || func != zio_nowait)
-		return (nio);
+	if (nio == NULL)
+		return (NULL);
 
-	func(nio);
-	return (NULL);
+	if (nio->io_done == vdev_queue_agg_io_done) {
+		zio_nowait(nio);
+		return (NULL);
+	}
+
+	return (nio);
 }
 
 void
@@ -301,21 +310,28 @@ vdev_queue_io_done(zio_t *zio)
 {
 	vdev_queue_t *vq = &zio->io_vd->vdev_queue;
 	zio_t *nio;
-	zio_issue_func_t *func;
 	int i;
 
 	mutex_enter(&vq->vq_lock);
 
 	avl_remove(&vq->vq_pending_tree, zio);
 
+#ifdef __APPLE__
+	if (zio->io_uplinfo)
+		debug_msg("%s zio=%p upl=%p", __func__, zio,
+		          upli_sharedupl(zio->io_uplinfo)->su_upl);
+#endif
 	for (i = 0; i < zfs_vdev_ramp_rate; i++) {
-		nio = vdev_queue_io_to_issue(vq, zfs_vdev_max_pending, &func);
+		nio = vdev_queue_io_to_issue(vq, zfs_vdev_max_pending);
 		if (nio == NULL)
 			break;
 		mutex_exit(&vq->vq_lock);
-		if (func == zio_next_stage)
+		if (nio->io_done == vdev_queue_agg_io_done) {
+			zio_nowait(nio);
+		} else {
 			zio_vdev_io_reissue(nio);
-		func(nio);
+			zio_execute(nio);
+		}
 		mutex_enter(&vq->vq_lock);
 	}
 

@@ -21,6 +21,9 @@
 /*
  * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ *
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
+ * Use is subject to license terms.
  */
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
@@ -134,6 +137,13 @@ zio_checksum_error(zio_t *zio)
 
 	if (checksum >= ZIO_CHECKSUM_FUNCTIONS || ci->ci_func[0] == NULL)
 		return (EINVAL);
+
+#ifdef __APPLE_KERNEL__
+	if (zio->io_data == NULL) { /* map the data in to do the checksum */
+		off_t off = zio->io_uplinfo->ui_f_off - upli_sharedupl(zio->io_uplinfo)->su_upl_f_off;
+		data = getuplvaddr(zio->io_uplinfo, TRUE/*for_read*/) + off;
+	}
+#endif
 
 	if (ci->ci_zbt) {
 		if (checksum == ZIO_CHECKSUM_GANG_HEADER)

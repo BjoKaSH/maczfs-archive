@@ -23,7 +23,9 @@
  * Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
-
+/* Portions Copyright 2007-2008 Apple Inc. All rights reserved.
+* Use is subject to license terms.  
+*/
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 #ifndef __APPLE__

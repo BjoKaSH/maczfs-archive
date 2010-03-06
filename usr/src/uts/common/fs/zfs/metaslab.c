@@ -35,6 +35,7 @@
 #include <sys/zio.h>
 
 uint64_t metaslab_aliquot = 512ULL << 10;
+uint64_t metaslab_gang_bang = SPA_MAXBLOCKSIZE + 1;	/* force gang blocks */
 
 /*
  * ==========================================================================
@@ -341,7 +342,7 @@ metaslab_fini(metaslab_t *msp)
 	int t;
 
 	vdev_space_update(mg->mg_vd, -msp->ms_map.sm_size,
-	    -msp->ms_smo.smo_alloc);
+	    -msp->ms_smo.smo_alloc, B_TRUE);
 
 	metaslab_group_remove(mg, msp);
 
@@ -534,8 +535,8 @@ metaslab_sync(metaslab_t *msp, uint64_t txg)
 
 	VERIFY(0 == dmu_bonus_hold(mos, smo->smo_object, FTAG, &db));
 	dmu_buf_will_dirty(db, tx);
-	ASSERT3U(db->db_size, ==, sizeof (*smo));
-	bcopy(smo, db->db_data, db->db_size);
+	ASSERT3U(db->db_size, >=, sizeof (*smo));
+	bcopy(smo, db->db_data, sizeof (*smo));
 	dmu_buf_rele(db, FTAG);
 
 	dmu_tx_commit(tx);
@@ -569,10 +570,10 @@ metaslab_sync_done(metaslab_t *msp, uint64_t txg)
 			space_map_create(&msp->ms_freemap[t], sm->sm_start,
 			    sm->sm_size, sm->sm_shift, sm->sm_lock);
 		}
-		vdev_space_update(vd, sm->sm_size, 0);
+		vdev_space_update(vd, sm->sm_size, 0, B_TRUE);
 	}
 
-	vdev_space_update(vd, 0, smosync->smo_alloc - smo->smo_alloc);
+	vdev_space_update(vd, 0, smosync->smo_alloc - smo->smo_alloc, B_TRUE);
 
 	ASSERT(msp->ms_allocmap[txg & TXG_MASK].sm_space == 0);
 	ASSERT(msp->ms_freemap[txg & TXG_MASK].sm_space == 0);
@@ -728,6 +729,12 @@ metaslab_alloc_dva(spa_t *spa, metaslab_class_t *mc, uint64_t psize,
 	ASSERT(!DVA_IS_VALID(&dva[d]));
 
 	/*
+	 * For testing, make some blocks above a certain size be gang blocks.
+	 */
+	if (psize >= metaslab_gang_bang && (lbolt & 3) == 0)
+		return (ENOSPC);
+
+	/*
 	 * Start at the rotor and loop through all mgs until we find something.
 	 * Note that there's no locking on mc_rotor or mc_allocated because
 	 * nothing actually breaks if we miss a few updates -- we just won't
@@ -773,6 +780,20 @@ top:
 	all_zero = B_TRUE;
 	do {
 		vd = mg->mg_vd;
+		/*
+		 * Dont allocate from faulted devices
+		 */
+		if (!vdev_writeable(vd))
+			goto next;
+		/*
+		 * Avoid writing single-copy data to a failing vdev
+		 */
+		if ((vd->vdev_stat.vs_write_errors > 0 ||
+		    vd->vdev_state < VDEV_STATE_HEALTHY) &&
+		    d == 0 && dshift == 3) {
+			all_zero = B_FALSE;
+			goto next;
+		}
 
 		ASSERT(mg->mg_class == mc);
 
@@ -828,6 +849,7 @@ top:
 
 			return (0);
 		}
+next:
 		mc->mc_rotor = mg->mg_next;
 		mc->mc_allocated = 0;
 	} while ((mg = mg->mg_next) != rotor);

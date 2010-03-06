@@ -22,8 +22,6 @@
 /*
  * Copyright 2005 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
- * Use is subject to license terms.
  */
 
 #ifndef _SYS_VDEV_FILE_H
@@ -38,11 +36,7 @@ extern "C" {
 #endif
 
 typedef struct vdev_file {
-#ifdef __APPLE__
-	struct vnode	*vf_vnode;
-#else
 	vnode_t		*vf_vnode;
-#endif
 } vdev_file_t;
 
 #ifdef	__cplusplus

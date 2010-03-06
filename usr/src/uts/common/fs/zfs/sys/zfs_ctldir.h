@@ -19,14 +19,8 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
- * Use is subject to license terms.
- */
-
-/*
- * Portions Copyright 2007 Apple Inc.  All rights reserved.
  */
 
 #ifndef	_ZFS_CTLDIR_H
@@ -35,7 +29,11 @@
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 #include <sys/pathname.h>
+#ifdef __APPLE__
+#include <sys/zfs_vnode.h>
+#else
 #include <sys/vnode.h>
+#endif
 #include <sys/zfs_vfsops.h>
 #include <sys/zfs_znode.h>
 
@@ -54,29 +52,21 @@ extern "C" {
 
 void zfsctl_create(zfsvfs_t *);
 void zfsctl_destroy(zfsvfs_t *);
-
-#ifdef __APPLE__
-struct vnode *zfsctl_root(znode_t *);
-#else
 vnode_t *zfsctl_root(znode_t *);
-#endif
-
 void zfsctl_init(void);
 void zfsctl_fini(void);
 
 int zfsctl_rename_snapshot(const char *from, const char *to);
 int zfsctl_destroy_snapshot(const char *snapname, int force);
 int zfsctl_umount_snapshots(vfs_t *, int, cred_t *);
-int zfsctl_unmount_snap(vnode_t *dvp, const char *name, int force, cred_t *cr);
 
-#ifndef __APPLE__
 int zfsctl_root_lookup(vnode_t *dvp, char *nm, vnode_t **vpp, pathname_t *pnp,
-    int flags, vnode_t *rdir, cred_t *cr);
+    int flags, vnode_t *rdir, cred_t *cr, caller_context_t *ct,
+    int *direntflags, pathname_t *realpnp);
 
 int zfsctl_make_fid(zfsvfs_t *zfsvfsp, uint64_t object, uint32_t gen,
     fid_t *fidp);
 int zfsctl_lookup_objset(vfs_t *vfsp, uint64_t objsetid, zfsvfs_t **zfsvfsp);
-#endif
 
 #define	ZFSCTL_INO_ROOT		0x1
 #define	ZFSCTL_INO_SNAPDIR	0x2

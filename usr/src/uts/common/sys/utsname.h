@@ -18,16 +18,18 @@
  *
  * CDDL HEADER END
  */
-/*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
- * Use is subject to license terms.
- */
 
+/*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
+/*	  All Rights Reserved  	*/ 
+
+/*
+* Copyright 2004 Sun Microsystems, Inc.  All rights reserved.
+* Use is subject to license terms.
+*/
 #ifndef _SYS_UTSNAME_H
 #define	_SYS_UTSNAME_H
 
-/* This header file intentionally left blank */
+/* This header file intentionally has no content */
+
 
 #endif /* _SYS_UTSNAME_H */

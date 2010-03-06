@@ -19,7 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
+ */
+/* Portions Copyright 2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -63,6 +66,9 @@ space_map_create(space_map_t *sm, uint64_t start, uint64_t size, uint8_t shift,
 	avl_create(&sm->sm_root, space_map_seg_compare,
 	    sizeof (space_seg_t), offsetof(struct space_seg, ss_node));
 
+#ifdef __APPLE__
+	cv_init(&sm->sm_load_cv, NULL, CV_DEFAULT, NULL);
+#endif	
 	sm->sm_start = start;
 	sm->sm_size = size;
 	sm->sm_shift = shift;
@@ -75,6 +81,9 @@ space_map_destroy(space_map_t *sm)
 	ASSERT(!sm->sm_loaded && !sm->sm_loading);
 	VERIFY3U(sm->sm_space, ==, 0);
 	avl_destroy(&sm->sm_root);
+#ifdef __APPPLE__
+	cv_destroy(&sm->sm_load_cv);
+#endif
 }
 
 void
@@ -298,6 +307,7 @@ space_map_load(space_map_t *sm, space_map_ops_t *ops, uint8_t maptype,
 	uint64_t *entry, *entry_map, *entry_map_end;
 	uint64_t bufsize, size, offset, end, space;
 	uint64_t mapstart = sm->sm_start;
+	int error = 0;
 
 	ASSERT(MUTEX_HELD(sm->sm_lock));
 
@@ -335,9 +345,10 @@ space_map_load(space_map_t *sm, space_map_ops_t *ops, uint8_t maptype,
 		    smo->smo_object, offset, size);
 
 		mutex_exit(sm->sm_lock);
-		VERIFY3U(dmu_read(os, smo->smo_object, offset, size,
-		    entry_map), ==, 0);
+		error = dmu_read(os, smo->smo_object, offset, size, entry_map);
 		mutex_enter(sm->sm_lock);
+		if (error != 0)
+			break;
 
 		entry_map_end = entry_map + (size / sizeof (uint64_t));
 		for (entry = entry_map; entry < entry_map_end; entry++) {
@@ -352,20 +363,25 @@ space_map_load(space_map_t *sm, space_map_ops_t *ops, uint8_t maptype,
 			    SM_RUN_DECODE(e) << sm->sm_shift);
 		}
 	}
-	VERIFY3U(sm->sm_space, ==, space);
+
+	if (error == 0) {
+		VERIFY3U(sm->sm_space, ==, space);
+
+		sm->sm_loaded = B_TRUE;
+		sm->sm_ops = ops;
+		if (ops != NULL)
+			ops->smop_load(sm);
+	} else {
+		space_map_vacate(sm, NULL, NULL);
+	}
 
 	zio_buf_free(entry_map, bufsize);
 
 	sm->sm_loading = B_FALSE;
-	sm->sm_loaded = B_TRUE;
-	sm->sm_ops = ops;
 
 	cv_broadcast(&sm->sm_load_cv);
 
-	if (ops != NULL)
-		ops->smop_load(sm);
-
-	return (0);
+	return (error);
 }
 
 void

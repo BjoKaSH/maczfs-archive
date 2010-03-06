@@ -21,6 +21,8 @@
 /*
  * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
+ * Use is subject to license terms.
  */
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
@@ -36,8 +38,11 @@
  * I'm against tune-ables, but these should probably exist as tweakable globals
  * until we can get this working the way we want it to.
  */
-
+#ifdef __APPLE__
+int zfs_prefetch_disable = 1;
+#else
 int zfs_prefetch_disable = 0;
+#endif
 
 /* max # of streams per zfetch */
 uint32_t	zfetch_max_streams = 8;

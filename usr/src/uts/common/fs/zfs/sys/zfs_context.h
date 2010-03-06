@@ -22,7 +22,7 @@
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  *
- * Portions Copyright 2007-2008 Apple Inc. All rights reserved.
+ * Portions Copyright 2007-2009 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -83,7 +83,8 @@ extern "C" {
 #include <sys/list.h>
 #include <sys/kmem.h>
 #include <sys/bitmap.h>
-#include <sys/vnode.h>
+#include <sys/zfs_vnode.h>
+#include <sys/vfs.h>
 #include <sys/debug.h>
 #include <sys/zfs_debug.h>
 #include <sys/time.h>
@@ -95,6 +96,10 @@ extern "C" {
 #include <string.h>
 
 #include <sys/fs/zfs_sysctl.h>
+
+#ifdef _KERNEL
+#include <sys/zfs_ubc.h>
+#endif
 
 #include <sys/disk.h>
 #define DKIOCFLUSHWRITECACHE DKIOCSYNCHRONIZECACHE
@@ -238,16 +243,16 @@ extern uint64_t  zfs_lbolt(void);
 #define lbolt zfs_lbolt()
 #define lbolt64 zfs_lbolt()
 
-extern int hz;			/* system clock's frequency */
+#define	hz	100
 
 /* file flags */
 
-#define	FSYNC		0x10	/* file (data+inode) integrity while writing */
-#define	FDSYNC		0x40	/* file data only integrity while writing */
-#define	FRSYNC		0x8000	/* sync read operations at same level of */
+#define	FSYNC	 	0x0	/* (data+inode) integrity, no flag in OS X */
+#define	FDSYNC		IO_SYNC	/* file data only integrity while writing */
+#define	FRSYNC		0x0	/* sync read operations at same level of */
 				/* integrity as specified for writes by */
-				/* FSYNC and FDSYNC flags */
-#define	FOFFMAX		0x2000	/* large file */
+				/* FSYNC and FDSYNC flags. No flag in OS X */
+#define	FOFFMAX		0x0	/* large file, no flag in OS X */
 //#define	FNONBLOCK	0x80
 
 //#define	FMASK		0xa0ff	/* all flags that can be changed by F_SETFL */
@@ -328,12 +333,6 @@ extern void arc_get_stats(zfs_memory_stats_t *stats);
 //#define	FASYNC		O_SYNC
 #define	FNOFOLLOW	O_NOFOLLOW
 
-#define kcred	(cred_t *)NOCRED
-
-#ifndef _KERNEL
-typedef int  cred_t;
-#endif
-
 
 /* Buffer flags not used in Mac OS X */
 #define B_FAILFAST  0
@@ -342,17 +341,11 @@ typedef struct flock flock64_t;
 
 #define F_FREESP 0
 
-#define	MODEMASK	07777		/* mode bits plus permission bits */
+#define MAXUID		UID_MAX
+#define	UID_NOBODY	99
+#define	GID_NOBODY	99
 
-/*
- * Flags for vnode operations.
- */
-enum rm         { RMFILE, RMDIRECTORY };        /* rm or rmdir (remove) */
-//enum symfollow  { NO_FOLLOW, FOLLOW };          /* follow symlinks (or not) */
-//enum vcexcl     { NONEXCL, EXCL };              /* (non)excl create */
-enum create     { CRCREAT, CRMKNOD, CRMKDIR };  /* reason for create */
-
-typedef struct vnode_attr  vattr_t;
+#define secpolicy_vnode_owner(cr, owner)	(0)
 
 #define va_mask		va_active
 #define va_nodeid   va_fileid
@@ -376,52 +369,40 @@ typedef struct vnode_attr  vattr_t;
 #define va_mtime	va_modify_time
 #define va_ctime	va_change_time
 
-typedef u_longlong_t	rlim64_t;
 
+/* Finder information */
+struct finderinfo {
+	u_int32_t  fi_type;        /* files only */
+	u_int32_t  fi_creator;     /* files only */
+	u_int16_t  fi_flags;
+	struct {
+		int16_t  v;
+		int16_t  h;
+	} fi_location;
+	int8_t  fi_opaque[18];
+} __attribute__((aligned(2), packed));
+typedef struct finderinfo finderinfo_t;
 
-/*
- * Structure used on Open Solaris VOP_GETSECATTR and VOP_SETSECATTR operations
- */
+enum {
+	/* Finder Flags */
+	kHasBeenInited		= 0x0100,
+	kHasCustomIcon		= 0x0400,
+	kIsStationery		= 0x0800,
+	kNameLocked		= 0x1000,
+	kHasBundle		= 0x2000,
+	kIsInvisible		= 0x4000,
+	kIsAlias		= 0x8000
+};
 
-typedef struct vsecattr {
-	uint_t		vsa_mask;	/* See below */
-	int		vsa_aclcnt;	/* ACL entry count */
-	void		*vsa_aclentp;	/* pointer to ACL entries */
-	int		vsa_dfaclcnt;	/* default ACL entry count */
-	void		*vsa_dfaclentp;	/* pointer to default ACL entries */
-} vsecattr_t;
-
-/* vsa_mask values */
-#define	VSA_ACL		0x0001
-#define	VSA_ACLCNT	0x0002
-#define	VSA_DFACL	0x0004
-#define	VSA_DFACLCNT	0x0008
-#define	VSA_ACE		0x0010
-#define	VSA_ACECNT	0x0020
-
-#define	RLIM64_INFINITY		((rlim64_t)-3)
-#define	RLIM64_SAVED_MAX	((rlim64_t)-2)
-#define	RLIM64_SAVED_CUR	((rlim64_t)-1)
-
-
-/*
- * Package up an I/O request on a vnode into a uio and do it.
- */
-extern int	zfs_vn_rdwr(enum uio_rw rw, struct vnode *vp, caddr_t base, ssize_t len,
-		offset_t offset, enum uio_seg seg, int ioflag, rlim64_t ulimit,
-		cred_t *cr, ssize_t *residp);
-
-#define vn_rdwr(rw, vp, base, len, off, seg, flg, limit, cr, resid)  \
-		zfs_vn_rdwr((rw), (vp), (base), (len), (off), (seg), (flg), (limit), (cr), (resid))
-		
 
 extern void delay();
 
+#ifdef _KERNEL
 extern char *strrchr(const char *, int);
 
-#define IS_DEVVP(vp)	(0)
+#define isdigit(d) ((d) >= '0' && (d) <= '9')
+#endif
 
-#define	CRED()		(cred_t *)kauth_cred_get()
 
 /*
  * The general purpose memory allocator in open solaris
@@ -474,7 +455,7 @@ struct dk_callback {
 
 extern	void 		gethrestime(struct timespec *);
 extern	time_t 		gethrestime_sec(void);
-extern  hrtime_t        gethrtime(void);
+extern	hrtime_t 	gethrtime(void);
 
 extern int random_add_entropy(uint8_t *, size_t, uint_t);
 extern int random_get_bytes(uint8_t *, size_t);
@@ -499,11 +480,6 @@ extern int uio_move(caddr_t cp, int n, int rw_flag, struct uio *uio);
 
 //extern volatile int64_t lbolt64;	/* lbolt computed as 64-bit value */
 
-#define vn_is_readonly(vp)  vnode_vfsisrdonly(vp)
-
-#define	VNFS_ADDFSREF	0x04	/* take fs (named) reference */
-
-#define VT_ZFS 17
 
 
 typedef __int32_t	major_t;	/* major part of device number */
@@ -534,53 +510,10 @@ typedef	uint32_t	dev32_t;
 extern void membar_producer(void);
 
 
-/* Root directory vnode for the system a.k.a. '/' */
-#ifdef __APPLE__
-/* Must use vfs_rootvnode() to acquire a reference, and
- * vnode_put() to release it
- */
-#if ZFS_LEOPARD_ONLY
-extern struct vnode *rootvnode;
-#define getrootdir()  rootvnode
-#else
-static inline struct vnode *getrootdir() { 
-	struct vnode *rvnode = vfs_rootvnode(); 
-	if (rvnode)
-		vnode_put(rvnode);
-	return rvnode; 
-}
-#endif
-#endif /*__APPLE__*/
-
 extern int issig(int);
 
 
 
-/*
- * VNODE SUPPORT
- */
-
-extern int	vn_open(char *pnamep, enum uio_seg seg, int filemode, int createmode,
-                    struct vnode **vpp, enum create crwhy, mode_t umask);
-
-extern int	vn_openat(char *pnamep, enum uio_seg seg, int filemode, int createmode,
-		struct vnode **vpp, enum create crwhy,
-		mode_t umask, struct vnode *startvp);
-
-extern int	vn_rename(char *from, char *to, enum uio_seg seg);
-
-extern int	vn_remove(char *fnamep, enum uio_seg seg, enum rm dirflag);
-
-/* vn_has_cached_data() determines if a file is mapped */
-#ifdef ZFS_LEOPARD_ONLY
-#define vn_has_cached_data(VP)	(VTOZ(VP)->z_mmapped)
-#else
-#define vn_has_cached_data(VP)	(VTOZ(VP)->z_mmapped || vnode_isswap(VP))
-#endif
-
-extern int VOP_CLOSE(struct vnode *, int, int, offset_t, void *);
-
-extern int VOP_FSYNC(struct vnode*, int, void *);
 
 
 typedef struct dirent dirent_t;
@@ -594,35 +527,11 @@ typedef struct direntry dirent64_t;
 	((sizeof(dirent_t) - (NAME_MAX+1)) + (((namelen)+1 + 7) &~ 7)))
 #endif
 
-#define crgetuid(cr)  kauth_cred_getuid((kauth_cred_t)cr)
 
-#define	DNLC_NO_VNODE (struct vnode *)(-1)
-
-#define vn_ismntpt(vp)   (vnode_mountedhere(vp) != NULL)
-
-
-/*
- * Check whether mandatory file locking is enabled.
- */
-
-#define	MANDMODE(mode)		(((mode) & (VSGID|(VEXEC>>3))) == VSGID)
-#define	MANDLOCK(vp, mode)	(vnode_isreg(vp) && MANDMODE(mode))
-
-
-#define VN_HOLD(vp)	vnode_getwithref(vp)
-
-#define VN_RELE(vp)					\
-	do {						\
-		if ((vp) && (vp) != DNLC_NO_VNODE)	\
-			vnode_put(vp);			\
-	} while (0)
-
-
-#define vn_exists(vp)	
 
 #define        CREATE_XATTR_DIR        0x04    /* Create extended attr dir */
 
-extern int  chklock(struct vnode *, int, u_offset_t, ssize_t, int, void *);
+extern int  chklock(vnode_t *, int, u_offset_t, ssize_t, int, void *);
 
 #ifndef _KERNEL
 extern int mkdirp(const char *, mode_t);
@@ -647,7 +556,7 @@ extern int vdev_contains_disks(vdev_t *);
 /*
  * Security Policy
  */
-
+#ifdef _KERNEL
 extern int secpolicy_zinject(const cred_t *);
 
 extern int secpolicy_zfs(const cred_t *);
@@ -670,14 +579,12 @@ extern int secpolicy_vnode_create_gid(const cred_t *);
 
 extern int secpolicy_vnode_setdac(const cred_t *, uid_t);
 
-extern int secpolicy_vnode_access(const cred_t *, struct vnode *, uid_t, mode_t);
-
+extern int secpolicy_vnode_access(const cred_t *, vnode_t *, uid_t, mode_t);
+#endif /* _KERNEL */
 
 #define __KPRINTFLIKE(a)  
 
 #define NO_FOLLOW 0
-
-#define DDI_SUCCESS 0
 
 #define OTYP_LYR 0
 
@@ -685,14 +592,6 @@ extern int secpolicy_vnode_access(const cred_t *, struct vnode *, uid_t, mode_t)
 
 
 extern char * strpbrk(const char *, const char *);
-
-/* ACLs */
-#include <sys/acl.h>
-
-extern void adjust_ace_pair(ace_t *pair, mode_t mode);
-extern int ace_trivial(ace_t *acep, int aclcnt);
-
-extern gid_t crgetgid(const cred_t *);
 
 
 extern struct kmem_cache * znode_cache_get(void);
@@ -706,11 +605,16 @@ extern int is_ascii_str(const char * str);
 
 #ifdef __APPLE__
 
-#define debug_msg(a...) debug_msg_internal(a)
-void debug_msg_internal(const char *fmt, ...) __printflike(1, 2);
+#define MSG_LEVEL 10000
+#define debug_msg(a...) debug_msg_internal(MSG_LEVEL, a)
+#define debug_msg_level(a...) debug_msg_internal(a)
+void debug_msg_internal(int output_level, const char *fmt, ...) __printflike(2, 3);
+int zfs_get_debugmsg(user_addr_t oldp, size_t *oldlenp, user_addr_t newp);
+char *zfs_get_stack_str(char line[], size_t len);
 
-extern int zfs_msg_buf_enabled;
+extern int zfs_msg_buf_output_level;
 extern int zfs_dprintf_enabled;
+extern int zfs_msg_buf_size;
 
 #else
 

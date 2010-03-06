@@ -19,7 +19,7 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -47,6 +47,7 @@ typedef struct vdev vdev_t;
 typedef struct metaslab metaslab_t;
 typedef struct zilog zilog_t;
 typedef struct traverse_handle traverse_handle_t;
+typedef struct spa_aux_vdev spa_aux_vdev_t;
 struct dsl_pool;
 
 /*
@@ -274,7 +275,7 @@ typedef struct blkptr {
 #define	BP_IS_HOLE(bp)		((bp)->blk_birth == 0)
 #define	BP_IS_OLDER(bp, txg)	(!BP_IS_HOLE(bp) && (bp)->blk_birth < (txg))
 
-#define	BP_ZERO(bp)				\
+#define	BP_ZERO_DVAS(bp)			\
 {						\
 	(bp)->blk_dva[0].dva_word[0] = 0;	\
 	(bp)->blk_dva[0].dva_word[1] = 0;	\
@@ -282,11 +283,16 @@ typedef struct blkptr {
 	(bp)->blk_dva[1].dva_word[1] = 0;	\
 	(bp)->blk_dva[2].dva_word[0] = 0;	\
 	(bp)->blk_dva[2].dva_word[1] = 0;	\
+	(bp)->blk_birth = 0;			\
+}
+
+#define	BP_ZERO(bp)				\
+{						\
+	BP_ZERO_DVAS(bp)			\
 	(bp)->blk_prop = 0;			\
 	(bp)->blk_pad[0] = 0;			\
 	(bp)->blk_pad[1] = 0;			\
 	(bp)->blk_pad[2] = 0;			\
-	(bp)->blk_birth = 0;			\
 	(bp)->blk_fill = 0;			\
 	ZIO_SET_CHECKSUM(&(bp)->blk_cksum, 0, 0, 0, 0);	\
 }
@@ -318,14 +324,20 @@ typedef struct blkptr {
 extern int spa_open(const char *pool, spa_t **, void *tag);
 extern int spa_get_stats(const char *pool, nvlist_t **config,
     char *altroot, size_t buflen);
-extern int spa_create(const char *pool, nvlist_t *config, const char *altroot,
+extern int spa_create(const char *pool, nvlist_t *config, nvlist_t *props,
     const char *history_str);
-extern int spa_import(const char *pool, nvlist_t *config, const char *altroot);
+extern void spa_check_rootconf(char *devpath, char **the_dev_p,
+    nvlist_t **the_conf_p, uint64_t *the_txg_p);
+extern boolean_t spa_rootdev_validate(nvlist_t *nv);
+extern int spa_import_rootpool(char *devpath);
+extern int spa_import(const char *pool, nvlist_t *config, nvlist_t *props);
+extern int spa_import_faulted(const char *, nvlist_t *, nvlist_t *);
 extern nvlist_t *spa_tryimport(nvlist_t *tryconfig);
 extern int spa_destroy(char *pool);
 extern int spa_export(char *pool, nvlist_t **oldconfig);
 extern int spa_reset(char *pool);
 extern void spa_async_request(spa_t *spa, int flag);
+extern void spa_async_unrequest(spa_t *spa, int flag);
 extern void spa_async_suspend(spa_t *spa);
 extern void spa_async_resume(spa_t *spa);
 extern spa_t *spa_inject_addref(char *pool);
@@ -333,7 +345,6 @@ extern void spa_inject_delref(spa_t *spa);
 
 #define	SPA_ASYNC_REMOVE	0x01
 #define	SPA_ASYNC_RESILVER_DONE	0x02
-#define	SPA_ASYNC_SCRUB		0x04
 #define	SPA_ASYNC_RESILVER	0x08
 #define	SPA_ASYNC_CONFIG_UPDATE	0x10
 
@@ -351,15 +362,23 @@ extern void spa_spare_remove(vdev_t *vd);
 extern boolean_t spa_spare_exists(uint64_t guid, uint64_t *pool);
 extern void spa_spare_activate(vdev_t *vd);
 
+/* L2ARC state (which is global across all pools) */
+extern void spa_l2cache_add(vdev_t *vd);
+extern void spa_l2cache_remove(vdev_t *vd);
+extern boolean_t spa_l2cache_exists(uint64_t guid, uint64_t *pool);
+extern void spa_l2cache_activate(vdev_t *vd);
+extern void spa_l2cache_drop(spa_t *spa);
+extern void spa_l2cache_space_update(vdev_t *vd, int64_t space, int64_t alloc);
+
 /* scrubbing */
-extern int spa_scrub(spa_t *spa, pool_scrub_type_t type, boolean_t force);
-extern void spa_scrub_suspend(spa_t *spa);
-extern void spa_scrub_resume(spa_t *spa);
-extern void spa_scrub_restart(spa_t *spa, uint64_t txg);
+extern int spa_scrub(spa_t *spa, pool_scrub_type_t type);
 
 /* spa syncing */
 extern void spa_sync(spa_t *spa, uint64_t txg); /* only for DMU use */
 extern void spa_sync_allpools(void);
+
+/* spa namespace global mutex */
+extern kmutex_t spa_namespace_lock;
 
 /*
  * SPA configuration functions in spa_config.c
@@ -368,13 +387,14 @@ extern void spa_sync_allpools(void);
 #define	SPA_CONFIG_UPDATE_POOL	0
 #define	SPA_CONFIG_UPDATE_VDEVS	1
 
-extern void spa_config_sync(void);
+extern void spa_config_sync(spa_t *, boolean_t, boolean_t);
 extern void spa_config_load(void);
 extern nvlist_t *spa_all_configs(uint64_t *);
 extern void spa_config_set(spa_t *spa, nvlist_t *config);
 extern nvlist_t *spa_config_generate(spa_t *spa, vdev_t *vd, uint64_t txg,
     int getstats);
 extern void spa_config_update(spa_t *spa, int what);
+extern void spa_config_update_common(spa_t *spa, int what, boolean_t isroot);
 
 /*
  * Miscellaneous SPA routines in spa_misc.c
@@ -402,7 +422,7 @@ extern int spa_vdev_exit(spa_t *spa, vdev_t *vd, uint64_t txg, int error);
 
 /* Accessor functions */
 extern krwlock_t *spa_traverse_rwlock(spa_t *spa);
-extern int spa_traverse_wanted(spa_t *spa);
+extern boolean_t spa_traverse_wanted(spa_t *spa);
 extern struct dsl_pool *spa_get_dsl(spa_t *spa);
 extern blkptr_t *spa_get_rootblkptr(spa_t *spa);
 extern void spa_set_rootblkptr(spa_t *spa, const blkptr_t *bp);
@@ -415,7 +435,6 @@ extern uint64_t spa_first_txg(spa_t *spa);
 extern uint64_t spa_version(spa_t *spa);
 extern int spa_state(spa_t *spa);
 extern uint64_t spa_freeze_txg(spa_t *spa);
-struct metaslab_class;
 extern uint64_t spa_get_alloc(spa_t *spa);
 extern uint64_t spa_get_space(spa_t *spa);
 extern uint64_t spa_get_dspace(spa_t *spa);
@@ -423,6 +442,7 @@ extern uint64_t spa_get_asize(spa_t *spa, uint64_t lsize);
 extern uint64_t spa_version(spa_t *spa);
 extern int spa_max_replication(spa_t *spa);
 extern int spa_busy(void);
+extern uint8_t spa_get_failmode(spa_t *spa);
 
 /* Miscellaneous support routines */
 extern int spa_rename(const char *oldname, const char *newname);
@@ -432,12 +452,14 @@ extern void spa_strfree(char *);
 extern uint64_t spa_get_random(uint64_t range);
 extern void sprintf_blkptr(char *buf, int len, const blkptr_t *bp);
 extern void spa_freeze(spa_t *spa);
-extern void spa_upgrade(spa_t *spa);
+extern void spa_upgrade(spa_t *spa, uint64_t version);
 extern void spa_evict_all(void);
-extern vdev_t *spa_lookup_by_guid(spa_t *spa, uint64_t guid);
+extern vdev_t *spa_lookup_by_guid(spa_t *spa, uint64_t guid,
+    boolean_t l2cache);
 extern boolean_t spa_has_spare(spa_t *, uint64_t guid);
 extern uint64_t bp_get_dasize(spa_t *spa, const blkptr_t *bp);
 extern boolean_t spa_has_slogs(spa_t *spa);
+extern boolean_t spa_is_root(spa_t *spa);
 
 /* history logging */
 typedef enum history_log_type {
@@ -469,7 +491,6 @@ struct zio;
 extern void spa_log_error(spa_t *spa, struct zio *zio);
 extern void zfs_ereport_post(const char *class, spa_t *spa, vdev_t *vd,
     struct zio *zio, uint64_t stateoroffset, uint64_t length);
-extern void zfs_post_ok(spa_t *spa, vdev_t *vd);
 extern void zfs_post_remove(spa_t *spa, vdev_t *vd);
 extern void zfs_post_autoreplace(spa_t *spa, vdev_t *vd);
 extern uint64_t spa_get_errlog_size(spa_t *spa);
@@ -479,15 +500,19 @@ extern void spa_errlog_drain(spa_t *spa);
 extern void spa_errlog_sync(spa_t *spa, uint64_t txg);
 extern void spa_get_errlists(spa_t *spa, avl_tree_t *last, avl_tree_t *scrub);
 
+/* vdev cache */
+extern void vdev_cache_stat_init(void);
+extern void vdev_cache_stat_fini(void);
+
 /* Initialization and termination */
 extern void spa_init(int flags);
 extern void spa_fini(void);
+extern void spa_boot_init();
 
 /* properties */
-extern int spa_set_props(spa_t *spa, nvlist_t *nvp);
-extern int spa_get_props(spa_t *spa, nvlist_t **nvp);
-extern void spa_clear_bootfs(spa_t *spa, uint64_t obj, dmu_tx_t *tx);
-extern boolean_t spa_has_bootfs(spa_t *spa);
+extern int spa_prop_set(spa_t *spa, nvlist_t *nvp);
+extern int spa_prop_get(spa_t *spa, nvlist_t **nvp);
+extern void spa_prop_clear_bootfs(spa_t *spa, uint64_t obj, dmu_tx_t *tx);
 
 /* asynchronous event notification */
 extern void spa_event_notify(spa_t *spa, vdev_t *vdev, const char *name);

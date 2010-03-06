@@ -19,7 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
+ *
+ * Portions Copyright 2009 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -239,13 +242,29 @@ typedef struct dbuf_hash_table {
 uint64_t dbuf_whichblock(struct dnode *di, uint64_t offset);
 
 dmu_buf_impl_t *dbuf_create_tlib(struct dnode *dn, char *data);
-dmu_buf_impl_t *dbuf_create_bonus(struct dnode *dn);
+void dbuf_create_bonus(struct dnode *dn);
 
+#ifdef __APPLE_KERNEL__
+#define	dbuf_hold(dn, blkid, tag)	\
+	dbuf_hold_osx(dn, blkid, tag, FALSE/*for_read*/, NULL/*tmpsu*/)
+dmu_buf_impl_t *dbuf_hold_osx(struct dnode *dn, uint64_t blkid, void *tag,
+    boolean_t for_read, sharedupl_t *tmpsu);
+#else
 dmu_buf_impl_t *dbuf_hold(struct dnode *dn, uint64_t blkid, void *tag);
+#endif
+
 dmu_buf_impl_t *dbuf_hold_level(struct dnode *dn, int level, uint64_t blkid,
     void *tag);
+
+#ifdef __APPLE_KERNEL__
+#define dbuf_hold_impl(dn, level, blkid, create, tag, dbp)	\
+	dbuf_hold_impl_osx(dn, level, blkid, create, tag, dbp, FALSE/*for_read*/, NULL/*tmpsu*/)
+int dbuf_hold_impl_osx(struct dnode *dn, uint8_t level, uint64_t blkid, int create,
+    void *tag, dmu_buf_impl_t **dbp, boolean_t for_read, sharedupl_t *tmpsu);
+#else
 int dbuf_hold_impl(struct dnode *dn, uint8_t level, uint64_t blkid, int create,
     void *tag, dmu_buf_impl_t **dbp);
+#endif
 
 void dbuf_prefetch(struct dnode *dn, uint64_t blkid);
 
@@ -256,13 +275,34 @@ void dbuf_rele(dmu_buf_impl_t *db, void *tag);
 
 dmu_buf_impl_t *dbuf_find(struct dnode *dn, uint8_t level, uint64_t blkid);
 
+#ifdef __APPLE_KERNEL__
+#define	dbuf_read(db, zio, flags)	\
+	dbuf_read_osx(db, zio, flags, NULL)
+int dbuf_read_osx(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags, void *uplinfo);
+
+#define	dbuf_will_dirty(db, tx)		\
+	dbuf_will_dirty_osx(db, tx, NULL)
+void dbuf_will_dirty_osx(dmu_buf_impl_t *db, dmu_tx_t *tx, sharedupl_t *tmpsu);
+
+#define	dmu_buf_will_fill(db, tx)	\
+	dmu_buf_will_fill_osx(db, tx, NULL, NULL)
+void dmu_buf_will_fill_osx(dmu_buf_t *db, dmu_tx_t *tx, void *uplinfo, sharedupl_t *tmpsu);
+#else
 int dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags);
 void dbuf_will_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx);
 void dmu_buf_will_fill(dmu_buf_t *db, dmu_tx_t *tx);
+#endif
+
 void dbuf_fill_done(dmu_buf_impl_t *db, dmu_tx_t *tx);
-void dmu_buf_will_fill(dmu_buf_t *db, dmu_tx_t *tx);
 void dmu_buf_fill_done(dmu_buf_t *db, dmu_tx_t *tx);
+
+#ifdef __APPLE_KERNEL__
+#define	dbuf_dirty(db, tx)	\
+	dbuf_dirty_osx(db, tx, NULL);
+dbuf_dirty_record_t *dbuf_dirty_osx(dmu_buf_impl_t *db, dmu_tx_t *tx, sharedupl_t *tmpsu);
+#else
 dbuf_dirty_record_t *dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx);
+#endif
 
 void dbuf_clear(dmu_buf_impl_t *db);
 void dbuf_evict(dmu_buf_impl_t *db);
@@ -271,10 +311,15 @@ void dbuf_setdirty(dmu_buf_impl_t *db, dmu_tx_t *tx);
 void dbuf_unoverride(dbuf_dirty_record_t *dr);
 void dbuf_sync_list(list_t *list, dmu_tx_t *tx);
 
-void dbuf_free_range(struct dnode *dn, uint64_t blkid, uint64_t nblks,
+void dbuf_free_range(struct dnode *dn, uint64_t start, uint64_t end,
     struct dmu_tx *);
 
 void dbuf_new_size(dmu_buf_impl_t *db, int size, dmu_tx_t *tx);
+
+#ifdef __APPLE_KERNEL__
+void dbuf_set_data(dmu_buf_impl_t *db, arc_buf_t *buf);
+void dbuf_conv_db_upl_to_arc(dmu_buf_impl_t *db, boolean_t copy_data);
+#endif
 
 void dbuf_init(void);
 void dbuf_fini(void);

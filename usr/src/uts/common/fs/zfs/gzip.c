@@ -22,8 +22,6 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
- * Use is subject to license terms.
  */
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
@@ -41,9 +39,6 @@
 size_t
 gzip_compress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
 {
-#ifdef __APPLE__
-	return(-1);
-#else
 	size_t dstlen = d_len;
 
 	ASSERT(d_len <= s_len);
@@ -57,16 +52,12 @@ gzip_compress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
 	}
 
 	return (dstlen);
-#endif
 }
 
 /*ARGSUSED*/
 int
 gzip_decompress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
 {
-#ifdef __APPLE__
-	return(ENOTSUP);
-#else
 	size_t dstlen = d_len;
 
 	ASSERT(d_len >= s_len);
@@ -75,5 +66,4 @@ gzip_decompress(void *s_start, void *d_start, size_t s_len, size_t d_len, int n)
 		return (-1);
 
 	return (0);
-#endif
 }

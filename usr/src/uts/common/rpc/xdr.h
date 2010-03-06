@@ -29,7 +29,7 @@
  * 4.3 BSD under license from the Regents of the University of
  * California.
  */
-/* Portions Copyright 2007 Apple Inc. All rights reserved.
+/* Portions Copyright 2007-2008 Apple Inc. All rights reserved.
  * Use is subject to license terms.
  */
  
@@ -264,9 +264,13 @@ struct xdr_ops {
 
 #define	XDR_CONTROL(xdrs, req, op)			\
 	(*(xdrs)->x_ops->x_control)(xdrs, req, op)
+#ifdef _KERNEL
 #define	xdr_control(xdrs, req, op)			\
 	(*(xdrs)->x_ops->x_control)(xdrs, req, op)
-
+#else
+#define xdr_control(xdrs, req, op) (1) /* XXX/ztest: ok to just return 1? */
+#endif
+	
 /*
  * Support struct for discriminated unions.
  * You create an array of xdrdiscrim structures, terminated with

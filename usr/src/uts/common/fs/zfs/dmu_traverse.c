@@ -19,7 +19,10 @@
  * CDDL HEADER END
  */
 /*
- * Copyright 2006 Sun Microsystems, Inc.  All rights reserved.
+ * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
+ *
+ * Portions copyright 2009 Apple, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -35,6 +38,7 @@
 #include <sys/spa.h>
 #include <sys/zio.h>
 #include <sys/dmu_impl.h>
+#include <sys/zvol.h>
 
 #define	BP_SPAN_SHIFT(level, width)	((level) * (width))
 
@@ -261,6 +265,16 @@ advance_block(zseg_t *zseg, dnode_phys_t *dnp, int rc, int advance)
 	return (EAGAIN);
 }
 
+/*
+ * The traverse_callback function will call the function specified in th_func.
+ * In the event of an error the callee, specified by th_func, must return
+ * one of the following errors:
+ *
+ *	EINTR		- Indicates that the callee wants the traversal to
+ *			  abort immediately.
+ * 	ERESTART	- The callee has acknowledged the error and would
+ *			  like to continue.
+ */
 static int
 traverse_callback(traverse_handle_t *th, zseg_t *zseg, traverse_blk_cache_t *bc)
 {
@@ -603,7 +617,10 @@ traverse_segment(traverse_handle_t *th, zseg_t *zseg, blkptr_t *mosbp)
 			th->th_locked = 0;
 		}
 
-		rc = traverse_read(th, bc, &dsp->ds_bp, dn);
+		if (BP_IS_HOLE(&dsp->ds_bp))
+			rc = ERESTART;
+		else
+			rc = traverse_read(th, bc, &dsp->ds_bp, dn);
 
 		if (rc != 0) {
 			if (rc == ERESTART)
@@ -625,7 +642,12 @@ traverse_segment(traverse_handle_t *th, zseg_t *zseg, blkptr_t *mosbp)
 		if (bc->bc_blkptr.blk_birth > zseg->seg_mintxg) {
 			rc = traverse_callback(th, zseg, bc);
 			if (rc) {
+#ifdef __APPLE__
+				ASSERT(rc == EINTR || rc == ENOBUFS || rc == EINPROGRESS);
+#else
 				ASSERT(rc == EINTR);
+#endif
+				
 				return (rc);
 			}
 			if ((th->th_advance & ADVANCE_ZIL) &&
@@ -666,7 +688,11 @@ traverse_segment(traverse_handle_t *th, zseg_t *zseg, blkptr_t *mosbp)
 			ASSERT(bc->bc_blkptr.blk_birth <= mosbp->blk_birth);
 			rc = traverse_callback(th, zseg, bc);
 			if (rc) {
+#ifdef __APPLE__
+				ASSERT(rc == EINTR || rc == ENOBUFS || rc == EINPROGRESS);
+#else
 				ASSERT(rc == EINTR);
+#endif
 				return (rc);
 			}
 			if (BP_IS_HOLE(&bc->bc_blkptr)) {
@@ -720,6 +746,26 @@ traverse_dsl_dataset(dsl_dataset_t *ds, uint64_t txg_start, int advance,
 	traverse_fini(th);
 	return (err);
 }
+
+#ifndef __APPLE__
+int
+traverse_zvol(objset_t *os, int advance,  blkptr_cb_t func, void *arg)
+{
+	spa_t *spa = dmu_objset_spa(os);
+	traverse_handle_t *th;
+	int err;
+
+	th = traverse_init(spa, func, arg, advance, ZIO_FLAG_CANFAIL);
+
+	traverse_add_dnode(th, 0, -1ULL, dmu_objset_id(os), ZVOL_OBJ);
+
+	while ((err = traverse_more(th)) == EAGAIN)
+		continue;
+
+	traverse_fini(th);
+	return (err);
+}
+#endif /* !__APPLE__ */
 
 int
 traverse_more(traverse_handle_t *th)
