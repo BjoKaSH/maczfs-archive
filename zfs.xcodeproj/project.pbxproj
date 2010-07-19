@@ -197,6 +197,8 @@
 		FAB331D010C3C88B00BF4948 /* nvpair_alloc_system.c in Sources */ = {isa = PBXBuildFile; fileRef = FAB331CF10C3C88B00BF4948 /* nvpair_alloc_system.c */; };
 		FAB331F810C3CC7C00BF4948 /* xdr_array.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93759210A38E6300754C9E /* xdr_array.c */; };
 		FACE32C9113A779E00A513AE /* uu_misc.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93757F10A38E6300754C9E /* uu_misc.c */; };
+		FAFCDF6911F511A8005259C8 /* zpool_prop.c in Sources */ = {isa = PBXBuildFile; fileRef = FAFCDF6711F511A8005259C8 /* zpool_prop.c */; };
+		FAFCDF6A11F511A8005259C8 /* zprop_common.c in Sources */ = {isa = PBXBuildFile; fileRef = FAFCDF6811F511A8005259C8 /* zprop_common.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -675,6 +677,8 @@
 		FA96598D11F35E74001E7C56 /* zutil.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = zutil.c; sourceTree = "<group>"; };
 		FA96598E11F35E74001E7C56 /* zutil.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = zutil.h; sourceTree = "<group>"; };
 		FAB331CF10C3C88B00BF4948 /* nvpair_alloc_system.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = nvpair_alloc_system.c; sourceTree = "<group>"; };
+		FAFCDF6711F511A8005259C8 /* zpool_prop.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = zpool_prop.c; sourceTree = "<group>"; };
+		FAFCDF6811F511A8005259C8 /* zprop_common.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = zprop_common.c; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1270,6 +1274,8 @@
 		FA93764B10A38E6300754C9E /* zfs */ = {
 			isa = PBXGroup;
 			children = (
+				FAFCDF6711F511A8005259C8 /* zpool_prop.c */,
+				FAFCDF6811F511A8005259C8 /* zprop_common.c */,
 				FA9376A110A38FB500754C9E /* zfs_prop.c */,
 				FA9376A210A38FB500754C9E /* zfs_deleg.h */,
 				FA9376A310A38FB500754C9E /* zfs_namecheck.c */,
@@ -1744,6 +1750,8 @@
 				FA0D2AC610A39F8000C63936 /* zfs_prop.c in Sources */,
 				FACE32C9113A779E00A513AE /* uu_misc.c in Sources */,
 				FA9656B311F1BFBC001E7C56 /* assfail.c in Sources */,
+				FAFCDF6911F511A8005259C8 /* zpool_prop.c in Sources */,
+				FAFCDF6A11F511A8005259C8 /* zprop_common.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

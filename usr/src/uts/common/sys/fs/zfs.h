@@ -54,19 +54,16 @@ typedef enum {
 	ZFS_TYPE_POOL		= 0x8
 } zfs_type_t;
 
-#define	ZFS_TYPE_ANY	\
+#define	ZFS_TYPE_DATASET	\
 	(ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME | ZFS_TYPE_SNAPSHOT)
 
 /*
- * Properties are identified by these constants and must be added to the
- * end of this list to ensure that external consumers are not affected
- * by the change. The property list also determines how 'zfs get' will
- * display them.  If you make any changes to this list, be sure to update
+ * Dataset properties are identified by these constants and must be added to
+ * the end of this list to ensure that external consumers are not affected
+ * by the change. If you make any changes to this list, be sure to update
  * the property table in usr/src/common/zfs/zfs_prop.c.
  */
 typedef enum {
-	ZFS_PROP_CONT = -2,
-	ZFS_PROP_INVAL = -1,
 	ZFS_PROP_TYPE,
 	ZFS_PROP_CREATION,
 	ZFS_PROP_USED,
@@ -101,32 +98,78 @@ typedef enum {
 	ZFS_PROP_XATTR,
 	ZFS_PROP_NUMCLONES,		/* not exposed to the user */
 	ZFS_PROP_COPIES,
-	ZPOOL_PROP_BOOTFS,
-	ZPOOL_PROP_AUTOREPLACE,
-	ZPOOL_PROP_DELEGATION,
 	ZFS_PROP_VERSION,
-	ZPOOL_PROP_NAME,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
-typedef zfs_prop_t zpool_prop_t;
+/*
+ * Pool properties are identified by these constants and must be added to the
+ * end of this list to ensure that external conumsers are not affected
+ * by the change. If you make any changes to this list, be sure to update
+ * the property table in usr/src/common/zfs/zpool_prop.c.
+ */
+typedef enum {
+	ZPOOL_PROP_NAME,
+	ZPOOL_PROP_SIZE,
+	ZPOOL_PROP_USED,
+	ZPOOL_PROP_AVAILABLE,
+	ZPOOL_PROP_CAPACITY,
+	ZPOOL_PROP_ALTROOT,
+	ZPOOL_PROP_HEALTH,
+	ZPOOL_PROP_GUID,
+	ZPOOL_PROP_VERSION,
+	ZPOOL_PROP_BOOTFS,
+	ZPOOL_PROP_DELEGATION,
+	ZPOOL_PROP_AUTOREPLACE,
+	ZPOOL_PROP_TEMPORARY,
+	ZPOOL_NUM_PROPS
+} zpool_prop_t;
 
-#define	ZPOOL_PROP_CONT		ZFS_PROP_CONT
-#define	ZPOOL_PROP_INVAL	ZFS_PROP_INVAL
+#define	ZPROP_CONT		-2
+#define	ZPROP_INVAL		-1
 
-#define	ZFS_PROP_VALUE		"value"
-#define	ZFS_PROP_SOURCE		"source"
+#define	ZPROP_VALUE		"value"
+#define	ZPROP_SOURCE		"source"
 
 typedef enum {
-	ZFS_SRC_NONE = 0x1,
-	ZFS_SRC_DEFAULT = 0x2,
-	ZFS_SRC_TEMPORARY = 0x4,
-	ZFS_SRC_LOCAL = 0x8,
-	ZFS_SRC_INHERITED = 0x10
-} zfs_source_t;
+	ZPROP_SRC_NONE = 0x1,
+	ZPROP_SRC_DEFAULT = 0x2,
+	ZPROP_SRC_TEMPORARY = 0x4,
+	ZPROP_SRC_LOCAL = 0x8,
+	ZPROP_SRC_INHERITED = 0x10
+} zprop_source_t;
 
-#define	ZFS_SRC_ALL	0x1f
+#define	ZPROP_SRC_ALL	0x1f
 
+typedef int (*zprop_func)(int, void *);
+
+/*
+ * Dataset property functions shared between libzfs and kernel.
+ */
+const char *zfs_prop_default_string(zfs_prop_t);
+uint64_t zfs_prop_default_numeric(zfs_prop_t);
+boolean_t zfs_prop_readonly(zfs_prop_t);
+boolean_t zfs_prop_inheritable(zfs_prop_t);
+const char *zfs_prop_to_name(zfs_prop_t);
+zfs_prop_t zfs_name_to_prop(const char *);
+boolean_t zfs_prop_user(const char *);
+int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
+int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
+
+/*
+ * Pool property functions shared between libzfs and kernel.
+ */
+zpool_prop_t zpool_name_to_prop(const char *);
+const char *zpool_prop_to_name(zpool_prop_t);
+const char *zpool_prop_default_string(zpool_prop_t);
+uint64_t zpool_prop_default_numeric(zpool_prop_t);
+boolean_t zpool_prop_readonly(zpool_prop_t);
+int zpool_prop_index_to_string(zpool_prop_t, uint64_t, const char **);
+int zpool_prop_string_to_index(zpool_prop_t, const char *, uint64_t *);
+
+/*
+ * Definitions for the Delegation.
+ */
 typedef enum {
 	ZFS_DELEG_WHO_UNKNOWN = 0,
 	ZFS_DELEG_USER = 'u',
@@ -152,31 +195,6 @@ typedef enum {
 #define	ZFS_DELEG_PERM_UID	"uid"
 #define	ZFS_DELEG_PERM_GID	"gid"
 #define	ZFS_DELEG_PERM_GROUPS	"groups"
-
-/*
- * The following functions are shared between libzfs and the kernel.
- */
-zfs_prop_t zfs_name_to_prop(const char *);
-zpool_prop_t zpool_name_to_prop(const char *);
-boolean_t zfs_prop_user(const char *);
-int zfs_prop_readonly(zfs_prop_t);
-const char *zfs_prop_default_string(zfs_prop_t);
-const char *zfs_prop_to_name(zfs_prop_t);
-const char *zpool_prop_to_name(zpool_prop_t);
-uint64_t zfs_prop_default_numeric(zfs_prop_t);
-int zfs_prop_inheritable(zfs_prop_t);
-int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
-int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
-uint64_t zpool_prop_default_numeric(zpool_prop_t);
-
-/*
- * Property Iterator
- */
-typedef zfs_prop_t (*zfs_prop_f)(zfs_prop_t, void *);
-typedef zpool_prop_t (*zpool_prop_f)(zpool_prop_t, void *);
-extern zfs_prop_t zfs_prop_iter(zfs_prop_f, void *);
-extern zfs_prop_t zfs_prop_iter_ordered(zfs_prop_f, void *);
-extern zpool_prop_t zpool_prop_iter(zpool_prop_f, void *);
 
 /*
  * On-disk version number.
@@ -218,8 +236,8 @@ extern zpool_prop_t zpool_prop_iter(zpool_prop_f, void *);
 #define	SPA_VERSION_ZPOOL_HISTORY	SPA_VERSION_4
 #define	SPA_VERSION_GZIP_COMPRESSION	SPA_VERSION_5
 #define	SPA_VERSION_BOOTFS		SPA_VERSION_6
-#define	ZFS_VERSION_SLOGS		SPA_VERSION_7
-#define	ZFS_VERSION_DELEGATED_PERMS	SPA_VERSION_8
+#define	SPA_VERSION_SLOGS		SPA_VERSION_7
+#define	SPA_VERSION_DELEGATED_PERMS	SPA_VERSION_8
 
 /*
  * ZPL version - rev'd whenever an incompatible on-disk format change
@@ -432,6 +450,7 @@ typedef struct vdev_stat {
 /*
  * /dev/zfs ioctl numbers.
  */
+#ifdef __APPLE__
 #define	IOCNUM_MASK	0x000000ff
 
 #define	ZFS_IOC_NUM(cmd)	((cmd) & IOCNUM_MASK)
@@ -456,6 +475,7 @@ typedef struct vdev_stat {
 #define ZFS_IOC_VDEV_DETACH         ZFS_IOC_CMD(15)
 #define ZFS_IOC_VDEV_SETPATH        ZFS_IOC_CMD(16)
 #define ZFS_IOC_OBJSET_STATS        ZFS_IOC_CMD(17)
+#define ZFS_IOC_OBJSET_VERSION      ZFS_IOC_CMD(46)
 #define ZFS_IOC_DATASET_LIST_NEXT   ZFS_IOC_CMD(18)
 #define ZFS_IOC_SNAPSHOT_LIST_NEXT  ZFS_IOC_CMD(19)
 #define ZFS_IOC_SET_PROP            ZFS_IOC_CMD(20)
@@ -484,6 +504,60 @@ typedef struct vdev_stat {
 #define	ZFS_IOC_ISCSI_PERM_CHECK    ZFS_IOC_CMD(43)
 #define	ZFS_IOC_SHARE		    ZFS_IOC_CMD(44)
 #define	ZFS_IOC_INHERIT_PROP	    ZFS_IOC_CMD(45)
+//efine ZFS_IOC_OBJSET_VERSION      ZFS_IOC_CMD(46) // Missing above, reserve placeholder
+#else
+#define	ZFS_IOC		('Z' << 8)
+
+typedef enum zfs_ioc {
+	ZFS_IOC_POOL_CREATE = ZFS_IOC,
+	ZFS_IOC_POOL_DESTROY,
+	ZFS_IOC_POOL_IMPORT,
+	ZFS_IOC_POOL_EXPORT,
+	ZFS_IOC_POOL_CONFIGS,
+	ZFS_IOC_POOL_STATS,
+	ZFS_IOC_POOL_TRYIMPORT,
+	ZFS_IOC_POOL_SCRUB,
+	ZFS_IOC_POOL_FREEZE,
+	ZFS_IOC_POOL_UPGRADE,
+	ZFS_IOC_POOL_GET_HISTORY,
+	ZFS_IOC_VDEV_ADD,
+	ZFS_IOC_VDEV_REMOVE,
+	ZFS_IOC_VDEV_SET_STATE,
+	ZFS_IOC_VDEV_ATTACH,
+	ZFS_IOC_VDEV_DETACH,
+	ZFS_IOC_VDEV_SETPATH,
+	ZFS_IOC_OBJSET_STATS,
+	ZFS_IOC_OBJSET_VERSION,
+	ZFS_IOC_DATASET_LIST_NEXT,
+	ZFS_IOC_SNAPSHOT_LIST_NEXT,
+	ZFS_IOC_SET_PROP,
+	ZFS_IOC_CREATE_MINOR,
+	ZFS_IOC_REMOVE_MINOR,
+	ZFS_IOC_CREATE,
+	ZFS_IOC_DESTROY,
+	ZFS_IOC_ROLLBACK,
+	ZFS_IOC_RENAME,
+	ZFS_IOC_RECVBACKUP,
+	ZFS_IOC_SENDBACKUP,
+	ZFS_IOC_INJECT_FAULT,
+	ZFS_IOC_CLEAR_FAULT,
+	ZFS_IOC_INJECT_LIST_NEXT,
+	ZFS_IOC_ERROR_LOG,
+	ZFS_IOC_CLEAR,
+	ZFS_IOC_PROMOTE,
+	ZFS_IOC_DESTROY_SNAPS,
+	ZFS_IOC_SNAPSHOT,
+	ZFS_IOC_DSOBJ_TO_DSNAME,
+	ZFS_IOC_OBJ_TO_PATH,
+	ZFS_IOC_POOL_SET_PROPS,
+	ZFS_IOC_POOL_GET_PROPS,
+	ZFS_IOC_SET_FSACL,
+	ZFS_IOC_GET_FSACL,
+	ZFS_IOC_ISCSI_PERM_CHECK,
+	ZFS_IOC_SHARE,
+	ZFS_IOC_INHERIT_PROP
+} zfs_ioc_t;
+#endif /* __APPLE__ */
 
 /*
  * Internal SPA load state.  Used by FMA diagnosis engine.

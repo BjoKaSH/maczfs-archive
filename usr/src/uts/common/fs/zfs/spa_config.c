@@ -174,18 +174,20 @@ spa_config_sync(void)
 	spa = NULL;
 	while ((spa = spa_next(spa)) != NULL) {
 		mutex_enter(&spa->spa_config_cache_lock);
+		if (spa->spa_config && spa->spa_name && !spa->spa_temporary) {
 #ifdef __APPLE__
 		/*
 		 * Any pools with disk based vdevs are omitted from the config
 		 * file (since disk device nodes have a dynamic name/location).
 		 */
-		if (spa->spa_config && spa->spa_name && spa->spa_root == NULL &&
-		    vdev_contains_disks(spa->spa_root_vdev) == 0)
-#else
-		if (spa->spa_config && spa->spa_name && spa->spa_root == NULL)
-#endif
+		  if (vdev_contains_disks(spa->spa_root_vdev) == 0) {
+#endif /* __APPLE__ */
 			VERIFY(nvlist_add_nvlist(config, spa->spa_name,
 			    spa->spa_config) == 0);
+#ifdef __APPLE__
+		  }
+#endif /* __APPLE__ */
+		}
 		mutex_exit(&spa->spa_config_cache_lock);
 	}
 
