@@ -11,11 +11,9 @@
 			isa = PBXAggregateTarget;
 			buildConfigurationList = 26C84C250AB75E3E008B950C /* Build configuration list for PBXAggregateTarget "zfs aggregate" */;
 			buildPhases = (
-				DAD6B4D610941B8E008A0395 /* CopyFiles */,
 			);
 			dependencies = (
 				26C84C2B0AB75E6C008B950C /* PBXTargetDependency */,
-				DAD6B3F710940D03008A0395 /* PBXTargetDependency */,
 				26C84C290AB75E65008B950C /* PBXTargetDependency */,
 				26B5F16D0AB7CDD9009860FF /* PBXTargetDependency */,
 				262CEB3D0AB9BF7B00582940 /* PBXTargetDependency */,
@@ -38,10 +36,6 @@
 		26B7E4A90B0A84B600C0C00F /* zpool.8 in CopyFiles */ = {isa = PBXBuildFile; fileRef = 269334CA0AD1C3FC000CDAB9 /* zpool.8 */; };
 		26E59EC70B87AAE600CFC573 /* zoink.c in Sources */ = {isa = PBXBuildFile; fileRef = 26E59EC60B87AAE600CFC573 /* zoink.c */; };
 		26E8B80C0B7243590006CCAF /* VolumeIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 26E8B80B0B7243590006CCAF /* VolumeIcon.icns */; };
-		DAD6B3DC10940AE4008A0395 /* fix-nofs.m in Sources */ = {isa = PBXBuildFile; fileRef = DAD6B3DB10940AE4008A0395 /* fix-nofs.m */; };
-		DAD6B41810940DCF008A0395 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DAD6B41710940DCF008A0395 /* Foundation.framework */; };
-		DAD6B4D010941B6F008A0395 /* post-install.sh in CopyFiles */ = {isa = PBXBuildFile; fileRef = DAD6B4BA109419E8008A0395 /* post-install.sh */; };
-		DAD6B4D110941B8C008A0395 /* fix-nofs in CopyFiles */ = {isa = PBXBuildFile; fileRef = DAD6B3CF109409E4008A0395 /* fix-nofs */; };
 		FA0D29FF10A39F8000C63936 /* avl.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93765A10A38E6300754C9E /* avl.c */; };
 		FA0D2A0F10A39F8000C63936 /* deviceid.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93757B10A38E6300754C9E /* deviceid.c */; };
 		FA0D2A1010A39F8000C63936 /* devid.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93765C10A38E6300754C9E /* devid.c */; };
@@ -272,13 +266,6 @@
 			remoteGlobalIDString = 2696406B0AACEAD20073456B;
 			remoteInfo = libzfs;
 		};
-		DAD6B3F610940D03008A0395 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 089C1669FE841209C02AAC07 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = DAD6B3CE109409E4008A0395;
-			remoteInfo = "fix-nofs";
-		};
 		FA63A71C1139EC5600754FDD /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 089C1669FE841209C02AAC07 /* Project object */;
@@ -371,17 +358,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 1;
 		};
-		DAD6B4D610941B8E008A0395 /* CopyFiles */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = install_support;
-			dstSubfolderSpec = 7;
-			files = (
-				DAD6B4D110941B8C008A0395 /* fix-nofs in CopyFiles */,
-				DAD6B4D010941B6F008A0395 /* post-install.sh in CopyFiles */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -402,10 +378,7 @@
 		26F63DB20AABD480000C5196 /* zfs */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = zfs; sourceTree = BUILT_PRODUCTS_DIR; };
 		32A4FEC30562C75700D090E7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = zfs_kext/Info.plist; sourceTree = "<group>"; };
 		32A4FEC40562C75800D090E7 /* zfs.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = zfs.kext; sourceTree = BUILT_PRODUCTS_DIR; };
-		DAD6B3CF109409E4008A0395 /* fix-nofs */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "fix-nofs"; sourceTree = BUILT_PRODUCTS_DIR; };
-		DAD6B3DB10940AE4008A0395 /* fix-nofs.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = "fix-nofs.m"; path = "install_support/fix-nofs.m"; sourceTree = "<group>"; };
 		DAD6B41710940DCF008A0395 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = /System/Library/Frameworks/Foundation.framework; sourceTree = "<absolute>"; };
-		DAD6B4BA109419E8008A0395 /* post-install.sh */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.script.sh; name = "post-install.sh"; path = "install_support/post-install.sh"; sourceTree = "<group>"; };
 		FA93756010A38E6300754C9E /* libnvpair.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = libnvpair.c; sourceTree = "<group>"; };
 		FA93756110A38E6300754C9E /* libnvpair.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = libnvpair.h; sourceTree = "<group>"; };
 		FA93756210A38E6300754C9E /* nvpair_alloc_system.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = nvpair_alloc_system.c; sourceTree = "<group>"; };
@@ -724,14 +697,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		DAD6B3CD109409E4008A0395 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				DAD6B41810940DCF008A0395 /* Foundation.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		FA93776D10A3924300754C9E /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -750,7 +715,6 @@
 				26BE01540A9E9FC800F3429C /* zfs_kext */,
 				262438310ACDCD8F007444B5 /* zfs_bundle */,
 				269334AF0AD1C1E2000CDAB9 /* Documentation */,
-				DAD6B3C91094097B008A0395 /* install_support */,
 				19C28FB6FE9D52B211CA2CBB /* Products */,
 				DAD6B41710940DCF008A0395 /* Foundation.framework */,
 			);
@@ -767,7 +731,6 @@
 				2611F7360ACDD13900E5D4E2 /* zfs.util */,
 				2611F75E0ACDD4E100E5D4E2 /* zfs.fs */,
 				26E59EBF0B87AA2700CFC573 /* zoink */,
-				DAD6B3CF109409E4008A0395 /* fix-nofs */,
 				FA93776F10A3924300754C9E /* ztest */,
 			);
 			name = Products;
@@ -818,15 +781,6 @@
 			);
 			name = zoink;
 			path = zfs_commands/zoink;
-			sourceTree = "<group>";
-		};
-		DAD6B3C91094097B008A0395 /* install_support */ = {
-			isa = PBXGroup;
-			children = (
-				DAD6B4BA109419E8008A0395 /* post-install.sh */,
-				DAD6B3DB10940AE4008A0395 /* fix-nofs.m */,
-			);
-			name = install_support;
 			sourceTree = "<group>";
 		};
 		FA93755C10A38E6300754C9E /* usr */ = {
@@ -1591,22 +1545,6 @@
 			productReference = 32A4FEC40562C75800D090E7 /* zfs.kext */;
 			productType = "com.apple.product-type.kernel-extension";
 		};
-		DAD6B3CE109409E4008A0395 /* fix-nofs */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = DAD6B3D410940A02008A0395 /* Build configuration list for PBXNativeTarget "fix-nofs" */;
-			buildPhases = (
-				DAD6B3CC109409E4008A0395 /* Sources */,
-				DAD6B3CD109409E4008A0395 /* Frameworks */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = "fix-nofs";
-			productName = "fix-nofs";
-			productReference = DAD6B3CF109409E4008A0395 /* fix-nofs */;
-			productType = "com.apple.product-type.tool";
-		};
 		FA93776E10A3924300754C9E /* ztest */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = FA93778710A3926600754C9E /* Build configuration list for PBXNativeTarget "ztest" */;
@@ -1647,7 +1585,6 @@
 				2611F7350ACDD13900E5D4E2 /* zfs.util */,
 				2611F75D0ACDD4E100E5D4E2 /* zfs.fs */,
 				26E59EBE0B87AA2700CFC573 /* zoink */,
-				DAD6B3CE109409E4008A0395 /* fix-nofs */,
 				FA93776E10A3924300754C9E /* ztest */,
 			);
 		};
@@ -1877,14 +1814,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		DAD6B3CC109409E4008A0395 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				DAD6B3DC10940AE4008A0395 /* fix-nofs.m in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		FA93776C10A3924300754C9E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -1949,11 +1878,6 @@
 			isa = PBXTargetDependency;
 			target = 2696406B0AACEAD20073456B /* libzfs */;
 			targetProxy = 26DBF4180AB7C675007CE795 /* PBXContainerItemProxy */;
-		};
-		DAD6B3F710940D03008A0395 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = DAD6B3CE109409E4008A0395 /* fix-nofs */;
-			targetProxy = DAD6B3F610940D03008A0395 /* PBXContainerItemProxy */;
 		};
 		FA63A71D1139EC5600754FDD /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -2339,36 +2263,6 @@
 			};
 			name = Release;
 		};
-		DAD6B3D1109409E4008A0395 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				COPY_PHASE_STRIP = NO;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_ENABLE_FIX_AND_CONTINUE = YES;
-				GCC_MODEL_TUNING = G5;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				INSTALL_PATH = /usr/local/bin;
-				PREBINDING = NO;
-				PRODUCT_NAME = "fix-nofs";
-			};
-			name = Debug;
-		};
-		DAD6B3D2109409E4008A0395 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				COPY_PHASE_STRIP = YES;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				GCC_ENABLE_FIX_AND_CONTINUE = NO;
-				GCC_MODEL_TUNING = G5;
-				INSTALL_PATH = /usr/local/bin;
-				PREBINDING = NO;
-				PRODUCT_NAME = "fix-nofs";
-				ZERO_LINK = NO;
-			};
-			name = Release;
-		};
 		FA3B67B711EB0B0F00307A88 /* DebugLLVM */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -2554,21 +2448,6 @@
 			};
 			name = DebugLLVM;
 		};
-		FA3B67C011EB0B0F00307A88 /* DebugLLVM */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				COPY_PHASE_STRIP = NO;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_ENABLE_FIX_AND_CONTINUE = YES;
-				GCC_MODEL_TUNING = G5;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				INSTALL_PATH = /usr/local/bin;
-				PREBINDING = NO;
-				PRODUCT_NAME = "fix-nofs";
-			};
-			name = DebugLLVM;
-		};
 		FA3B67C111EB0B0F00307A88 /* DebugLLVM */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -2703,16 +2582,6 @@
 				26F63DB80AABD48F000C5196 /* Debug */,
 				FA3B67BC11EB0B0F00307A88 /* DebugLLVM */,
 				26F63DB90AABD48F000C5196 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		DAD6B3D410940A02008A0395 /* Build configuration list for PBXNativeTarget "fix-nofs" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				DAD6B3D1109409E4008A0395 /* Debug */,
-				FA3B67C011EB0B0F00307A88 /* DebugLLVM */,
-				DAD6B3D2109409E4008A0395 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
