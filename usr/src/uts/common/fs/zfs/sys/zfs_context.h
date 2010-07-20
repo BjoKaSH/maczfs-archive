@@ -727,6 +727,14 @@ extern int zfs_dprintf_enabled;
 extern void dprint_stack_internal(char func_name[], char file_name[], int line);
 #define dprint_stack dprint_stack_internal(__func__, __FILE__, __LINE__)
 
+#include <sys/stat.h>	
+#ifdef _DARWIN_FEATURE_64_BIT_INODE
+#define stat64 stat
+#define fstat64 fstat
+#define lstat64 lstat
+#endif
+	
+	
 #else  /* __APPLE__ */
 #include <sys/note.h>
 #include <sys/types.h>

@@ -729,11 +729,7 @@ zfs_get_handle(zfs_handle_t *zhp)
 zfs_handle_t *
 zfs_path_to_zhandle(libzfs_handle_t *hdl, char *path, zfs_type_t argtype)
 {
-#if _DARWIN_FEATURE_64_BIT_INODE
-	struct stat statbuf;
-#else
 	struct stat64 statbuf;
-#endif
 #ifdef __APPLE__
 	struct statfs *sfsp;
 	int nitems;
@@ -749,11 +745,7 @@ zfs_path_to_zhandle(libzfs_handle_t *hdl, char *path, zfs_type_t argtype)
 		return (zfs_open(hdl, path, argtype));
 	}
 
-#if _DARWIN_FEATURE_64_BIT_INODE
-	if (stat(path, &statbuf) != 0) {
-#else
 	if (stat64(path, &statbuf) != 0) {
-#endif
 		(void) fprintf(stderr, "%s: %s\n", path, strerror(errno));
 		return (NULL);
 	}

@@ -706,22 +706,14 @@ label_offset(uint64_t size, int l)
 int
 zpool_read_label(int fd, nvlist_t **config)
 {
-#if _DARWIN_FEATURE_64_BIT_INODE
-	struct stat statbuf;
-#else
 	struct stat64 statbuf;
-#endif
 	int l;
 	vdev_label_t *label;
 	uint64_t state, txg, size;
 
 	*config = NULL;
 
-#if _DARWIN_FEATURE_64_BIT_INODE
-	if (fstat(fd, &statbuf) == -1)
-#else
 	if (fstat64(fd, &statbuf) == -1)		
-#endif
 		return (0);
 /*
  * OSX fstat on a block device will return an st_size of 0 instead of
@@ -791,11 +783,7 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv)
 	DIR *dirp = NULL;
 	struct dirent64 *dp;
 	char path[MAXPATHLEN];
-#if _DARWIN_FEATURE_64_BIT_INODE
-	struct stat statbuf;
-#else
 	struct stat64 statbuf;
-#endif
 	nvlist_t *ret = NULL, *config;
 #ifdef __APPLE__
 	static char *default_dir = "/dev";
@@ -844,11 +832,7 @@ zpool_find_import(libzfs_handle_t *hdl, int argc, char **argv)
 			(void) snprintf(path, sizeof (path), "%s/%s",
 			    argv[i], dp->d_name);
 
-#if _DARWIN_FEATURE_64_BIT_INODE
-			if (stat(path, &statbuf) != 0)
-#else
 			if (stat64(path, &statbuf) != 0)		
-#endif
 				continue;
 
 			/*
