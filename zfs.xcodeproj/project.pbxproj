@@ -193,6 +193,8 @@
 		FACE32C9113A779E00A513AE /* uu_misc.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93757F10A38E6300754C9E /* uu_misc.c */; };
 		FAFCDF6911F511A8005259C8 /* zpool_prop.c in Sources */ = {isa = PBXBuildFile; fileRef = FAFCDF6711F511A8005259C8 /* zpool_prop.c */; };
 		FAFCDF6A11F511A8005259C8 /* zprop_common.c in Sources */ = {isa = PBXBuildFile; fileRef = FAFCDF6811F511A8005259C8 /* zprop_common.c */; };
+		FAFCDFFC11F65BB1005259C8 /* zpool_prop.c in Sources */ = {isa = PBXBuildFile; fileRef = FAFCDF6711F511A8005259C8 /* zpool_prop.c */; };
+		FAFCE00111F65BEF005259C8 /* zprop_common.c in Sources */ = {isa = PBXBuildFile; fileRef = FAFCDF6811F511A8005259C8 /* zprop_common.c */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -1811,6 +1813,8 @@
 				FA9656AF11F1BFA3001E7C56 /* maczfs_kernel.c in Sources */,
 				FA9656B011F1BFA3001E7C56 /* zfs_context.c in Sources */,
 				FA965A1611F366D2001E7C56 /* zmod.c in Sources */,
+				FAFCDFFC11F65BB1005259C8 /* zpool_prop.c in Sources */,
+				FAFCE00111F65BEF005259C8 /* zprop_common.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
