@@ -3346,7 +3346,7 @@ spa_sync_props(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	objset_t *mos = spa->spa_meta_objset;
 	nvlist_t *nvp = arg2;
 	nvpair_t *elem;
-	uint64_t intval;
+	uint64_t intval = SPA_VERSION;
 	char *strval;
 	zpool_prop_t prop;
 	const char *propname;

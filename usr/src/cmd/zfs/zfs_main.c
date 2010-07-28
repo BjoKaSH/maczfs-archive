@@ -1493,7 +1493,7 @@ zfs_do_upgrade(int argc, char **argv)
 		cb.cb_foundone = B_FALSE;
 		cb.cb_newer = B_TRUE;
 
-		ret = zfs_for_each(0, NULL, B_TRUE, ZFS_TYPE_FILESYSTEM,
+		ret += zfs_for_each(0, NULL, B_TRUE, ZFS_TYPE_FILESYSTEM,
 		    NULL, NULL, upgrade_list_callback, &cb, B_TRUE);
 
 		if (!cb.cb_foundone && !found) {
@@ -3133,7 +3133,7 @@ share_mount(int op, int argc, char **argv)
 			}
 
 			argc--;
-			argv++;
+			// argv++;
 		} else {
 			types = ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME;
 		}

@@ -395,7 +395,7 @@ change_one(zfs_handle_t *zhp, void *data)
 	char property[ZFS_MAXPROPLEN];
 	char where[64];
 	prop_changenode_t *cn;
-	zprop_source_t sourcetype;
+	zprop_source_t sourcetype = ZPROP_SRC_NONE;
 
 	/*
 	 * We only want to unmount/unshare those filesystems that may inherit
