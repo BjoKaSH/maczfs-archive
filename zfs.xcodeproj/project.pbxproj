@@ -2061,6 +2061,7 @@
 					i386,
 					ppc,
 				);
+				COPY_PHASE_STRIP = NO;
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = DEBUG;
@@ -2074,6 +2075,7 @@
 					"-include",
 					"$(SRCROOT)/usr/src/uts/common/sys/types.h",
 				);
+				STRIP_INSTALLED_PRODUCT = NO;
 			};
 			name = Debug;
 		};
@@ -2372,6 +2374,7 @@
 					i386,
 					ppc,
 				);
+				COPY_PHASE_STRIP = NO;
 				GCC_C_LANGUAGE_STANDARD = c99;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				GCC_PREPROCESSOR_DEFINITIONS = DEBUG;
@@ -2385,6 +2388,7 @@
 					"-include",
 					"$(SRCROOT)/usr/src/uts/common/sys/types.h",
 				);
+				STRIP_INSTALLED_PRODUCT = NO;
 			};
 			name = DebugLLVM;
 		};
