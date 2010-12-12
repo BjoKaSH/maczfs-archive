@@ -80,6 +80,7 @@ extern struct mod_ops mod_dacfops;
 extern struct mod_ops mod_ippops;
 extern struct mod_ops mod_pcbeops;
 extern struct mod_ops mod_devfsops;
+extern struct mod_ops mod_kiconvops;
 
 #endif /* _KERNEL */
 
@@ -188,6 +189,13 @@ struct modldev {
 	struct mod_ops		*dev_modops;
 	char			*dev_linkinfo;
 	struct devname_ops	*dev_ops;
+};
+
+/* For kiconv modules */
+struct modlkiconv {
+	struct mod_ops		*kiconv_modops;
+	char			*kiconv_linkinfo;
+	struct kiconv_mod_info	*kiconv_moddef;
 };
 
 /*
@@ -531,7 +539,7 @@ extern int moddebug;
 extern modctl_t modules;
 
 extern int modload_qualified(const char *,
-    const char *, const char *, const char *, uint_t[], int);
+    const char *, const char *, const char *, uint_t[], int, int *);
 
 extern void	mod_setup(void);
 extern int	modload(char *, char *);
