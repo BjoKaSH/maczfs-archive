@@ -26,12 +26,18 @@
  */
 
 #ifndef	_SYS_FS_ZFS_H
+// The ZFS_IOC needs to have struct zfs defined, but we may not have it
+// first time this file gets parsed. So don't #def away the file in its
+// entirety the first time; wait until the second half to define this
+// def. Fugly, but comes from 10a286
+#ifndef	__APPLE__
 #define	_SYS_FS_ZFS_H
+#endif
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 #include <sys/types.h>
-#if __APPLE__
+#ifdef __APPLE__
 #include <sys/ioccom.h>
 #endif
 
@@ -451,63 +457,26 @@ typedef struct vdev_stat {
  * /dev/zfs ioctl numbers.
  */
 #ifdef __APPLE__
+
 #define	IOCNUM_MASK	0x000000ff
-
 #define	ZFS_IOC_NUM(cmd)	((cmd) & IOCNUM_MASK)
+#define	ZFS_IOC				_IOWR('Z', 0, struct zfs_cmd)
 
-#define	ZFS_IOC_CMD(num)	_IOWR('Z', (num), struct zfs_cmd)
-
-#define ZFS_IOC_POOL_CREATE         ZFS_IOC_CMD( 0)
-#define ZFS_IOC_POOL_DESTROY        ZFS_IOC_CMD( 1)
-#define ZFS_IOC_POOL_IMPORT         ZFS_IOC_CMD( 2)
-#define ZFS_IOC_POOL_EXPORT         ZFS_IOC_CMD( 3)
-#define ZFS_IOC_POOL_CONFIGS        ZFS_IOC_CMD( 4)
-#define ZFS_IOC_POOL_STATS          ZFS_IOC_CMD( 5)
-#define ZFS_IOC_POOL_TRYIMPORT      ZFS_IOC_CMD( 6)
-#define ZFS_IOC_POOL_SCRUB          ZFS_IOC_CMD( 7)
-#define ZFS_IOC_POOL_FREEZE         ZFS_IOC_CMD( 8)
-#define ZFS_IOC_POOL_UPGRADE        ZFS_IOC_CMD( 9)
-#define ZFS_IOC_POOL_GET_HISTORY    ZFS_IOC_CMD(10)
-#define ZFS_IOC_VDEV_ADD            ZFS_IOC_CMD(11)
-#define ZFS_IOC_VDEV_REMOVE         ZFS_IOC_CMD(12)
-#define ZFS_IOC_VDEV_SET_STATE      ZFS_IOC_CMD(13)
-#define ZFS_IOC_VDEV_ATTACH         ZFS_IOC_CMD(14)
-#define ZFS_IOC_VDEV_DETACH         ZFS_IOC_CMD(15)
-#define ZFS_IOC_VDEV_SETPATH        ZFS_IOC_CMD(16)
-#define ZFS_IOC_OBJSET_STATS        ZFS_IOC_CMD(17)
-#define ZFS_IOC_OBJSET_VERSION      ZFS_IOC_CMD(46)
-#define ZFS_IOC_DATASET_LIST_NEXT   ZFS_IOC_CMD(18)
-#define ZFS_IOC_SNAPSHOT_LIST_NEXT  ZFS_IOC_CMD(19)
-#define ZFS_IOC_SET_PROP            ZFS_IOC_CMD(20)
-#define ZFS_IOC_CREATE_MINOR        ZFS_IOC_CMD(21)
-#define ZFS_IOC_REMOVE_MINOR        ZFS_IOC_CMD(22)
-#define ZFS_IOC_CREATE              ZFS_IOC_CMD(23)
-#define ZFS_IOC_DESTROY             ZFS_IOC_CMD(24)
-#define ZFS_IOC_ROLLBACK            ZFS_IOC_CMD(25)
-#define ZFS_IOC_RENAME              ZFS_IOC_CMD(26)
-#define ZFS_IOC_RECVBACKUP          ZFS_IOC_CMD(27)
-#define ZFS_IOC_SENDBACKUP          ZFS_IOC_CMD(28)
-#define ZFS_IOC_INJECT_FAULT        ZFS_IOC_CMD(29)
-#define ZFS_IOC_CLEAR_FAULT         ZFS_IOC_CMD(30)
-#define ZFS_IOC_INJECT_LIST_NEXT    ZFS_IOC_CMD(31)
-#define ZFS_IOC_ERROR_LOG           ZFS_IOC_CMD(32)
-#define ZFS_IOC_CLEAR               ZFS_IOC_CMD(33)
-#define ZFS_IOC_PROMOTE             ZFS_IOC_CMD(34)
-#define ZFS_IOC_DESTROY_SNAPS       ZFS_IOC_CMD(35)
-#define ZFS_IOC_SNAPSHOT            ZFS_IOC_CMD(36)
-#define ZFS_IOC_DSOBJ_TO_DSNAME     ZFS_IOC_CMD(37)
-#define ZFS_IOC_OBJ_TO_PATH         ZFS_IOC_CMD(38)
-#define ZFS_IOC_POOL_SET_PROPS	    ZFS_IOC_CMD(39)
-#define	ZFS_IOC_POOL_GET_PROPS	    ZFS_IOC_CMD(40)
-#define ZFS_IOC_SET_FSACL	    ZFS_IOC_CMD(41)
-#define	ZFS_IOC_GET_FSACL	    ZFS_IOC_CMD(42)
-#define	ZFS_IOC_ISCSI_PERM_CHECK    ZFS_IOC_CMD(43)
-#define	ZFS_IOC_SHARE		    ZFS_IOC_CMD(44)
-#define	ZFS_IOC_INHERIT_PROP	    ZFS_IOC_CMD(45)
-//efine ZFS_IOC_OBJSET_VERSION      ZFS_IOC_CMD(46) // Missing above, reserve placeholder
 #else
+
 #define	ZFS_IOC		('Z' << 8)
 
+#endif /* __APPLE__ */
+
+/* OS X end of first half of zfs.h: */
+#endif	/* _SYS_FS_ZFS_H */
+		
+/*
+ * OS X - ZFS_IOC cannot be used without first defining struct zfs_cmd
+ */
+#if !defined(_ZFS_IOC_TYPE) && !defined(_KERNEL) && defined(_ZFS_CMD_TYPE)
+#define _ZFS_IOC_TYPE
+	
 typedef enum zfs_ioc {
 	ZFS_IOC_POOL_CREATE = ZFS_IOC,
 	ZFS_IOC_POOL_DESTROY,
@@ -557,8 +526,12 @@ typedef enum zfs_ioc {
 	ZFS_IOC_SHARE,
 	ZFS_IOC_INHERIT_PROP
 } zfs_ioc_t;
-#endif /* __APPLE__ */
 
+/* OS X - second half of zfs.h: */
+#endif /* _ZFS_IOC_TYPE */
+#ifndef	_SYS_FS_ZFS_H
+#define	_SYS_FS_ZFS_H
+	
 /*
  * Internal SPA load state.  Used by FMA diagnosis engine.
  */

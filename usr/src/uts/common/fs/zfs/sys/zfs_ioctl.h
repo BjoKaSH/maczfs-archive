@@ -153,6 +153,11 @@ typedef struct zfs_cmd {
 #endif
 } zfs_cmd_t;
 
+#ifdef __APPLE__
+/* Let zfs.h know that zfs_cmd_t is now defined */
+#define _ZFS_CMD_TYPE
+#endif
+	
 #define	ZVOL_MAX_MINOR	(1 << 16)
 #define	ZFS_MIN_MINOR	(ZVOL_MAX_MINOR + 1)
 

@@ -55,9 +55,6 @@
 
 #include <sys/vdev_impl.h>
 
-#include "libzfs.h"
-#include "libzfs_impl.h"
-
 #ifdef __APPLE__
 #include "libzfs_ioctl.h"
 
@@ -65,6 +62,10 @@
 #define open64 open
 #define readdir64 readdir
 #endif
+
+#include "libzfs.h"
+#include "libzfs_impl.h"
+
 
 /*
  * Intermediate structures used to gather configuration information.

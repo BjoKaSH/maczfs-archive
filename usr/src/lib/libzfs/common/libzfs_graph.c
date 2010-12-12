@@ -83,11 +83,11 @@
 
 #include <libzfs.h>
 
-#include "libzfs_impl.h"
-#include "zfs_namecheck.h"
 #ifdef __APPLE__
 #include "libzfs_ioctl.h"
 #endif
+#include "libzfs_impl.h"
+#include "zfs_namecheck.h"
 
 #define	MIN_EDGECOUNT	4
 
