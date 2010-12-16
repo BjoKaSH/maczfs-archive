@@ -26,7 +26,7 @@
 #pragma ident	"@(#)kernel.c	1.3	06/03/16 SMI"
 
 #include <assert.h>
-#include <sys/zfs_context.h>
+#include <sys/ztest_context.h>
 #include <poll.h>
 #include <string.h>
 #include <stdio.h>

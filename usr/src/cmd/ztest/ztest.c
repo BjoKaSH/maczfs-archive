@@ -74,7 +74,7 @@
  * from plain old race conditions.
  */
 
-#include <sys/zfs_context.h>
+#include <sys/ztest_context.h>
 #include <sys/spa.h>
 #include <sys/dmu.h>
 #include <sys/txg.h>
