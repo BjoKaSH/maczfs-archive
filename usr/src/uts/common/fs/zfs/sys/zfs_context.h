@@ -442,9 +442,6 @@ struct vmem {
 #define segkmem_alloc		NULL
 #define segkmem_free		NULL
 
-
-#define strident_canon(s, l)	
-
 extern void *vmem_alloc(vmem_t *, size_t, int);
 extern void *vmem_xalloc(vmem_t *, size_t, size_t, size_t, size_t, void *, void *, int);
 extern void vmem_free(vmem_t *, void *, size_t);
