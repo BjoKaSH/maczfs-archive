@@ -31,4 +31,8 @@
 #include <sys/mount.h>
 #define vnode_t struct vnode
 
+#define dirent64 dirent
+#define readdir64 readdir
+#define open64 open
+
 #endif /* _MACZFS_MOUNT_H */

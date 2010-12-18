@@ -154,7 +154,6 @@ is_shared(libzfs_handle_t *hdl, const char *mountpoint)
 	return (B_FALSE);
 }
 
-#ifndef __APPLE__
 /*
  * Returns true if the specified directory is empty.  If we can't open the
  * directory at all, return true so that the mount can fail with a more
@@ -182,7 +181,6 @@ dir_is_empty(const char *dirname)
 	(void) closedir(dirp);
 	return (B_TRUE);
 }
-#endif /*!__APPLE__*/
 
 /*
  * Checks to see if the mount is active.  If the filesystem is mounted, we fill
