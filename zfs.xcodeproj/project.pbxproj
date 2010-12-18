@@ -91,6 +91,7 @@
 		FA0D2AC710A39F8000C63936 /* zfs_prop.h in Headers */ = {isa = PBXBuildFile; fileRef = FA9376A610A38FB500754C9E /* zfs_prop.h */; };
 		FA0D2AE710A39F8000C63936 /* zvol.h in Headers */ = {isa = PBXBuildFile; fileRef = FA93760B10A38E6300754C9E /* zvol.h */; };
 		FA6DD2F212BCDEC000B25DA9 /* maczfs_vnode.h in Headers */ = {isa = PBXBuildFile; fileRef = FA6DD2F112BCDEC000B25DA9 /* maczfs_vnode.h */; };
+		FA6DD37F12BD5FC900B25DA9 /* string.c in Sources */ = {isa = PBXBuildFile; fileRef = FA6DD37E12BD5FC900B25DA9 /* string.c */; };
 		FA93776610A391FD00754C9E /* zpool_iter.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93766010A38E6300754C9E /* zpool_iter.c */; };
 		FA93776710A391FD00754C9E /* zpool_vdev.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93766210A38E6300754C9E /* zpool_vdev.c */; };
 		FA93776810A391FD00754C9E /* zpool_util.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93766310A38E6300754C9E /* zpool_util.c */; };
@@ -383,6 +384,7 @@
 		32A4FEC40562C75800D090E7 /* zfs.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = zfs.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		DAD6B41710940DCF008A0395 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = /System/Library/Frameworks/Foundation.framework; sourceTree = "<absolute>"; };
 		FA6DD2F112BCDEC000B25DA9 /* maczfs_vnode.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = maczfs_vnode.h; sourceTree = "<group>"; };
+		FA6DD37E12BD5FC900B25DA9 /* string.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = string.c; sourceTree = "<group>"; };
 		FA93756010A38E6300754C9E /* libnvpair.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = libnvpair.c; sourceTree = "<group>"; };
 		FA93756110A38E6300754C9E /* libnvpair.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = libnvpair.h; sourceTree = "<group>"; };
 		FA93756210A38E6300754C9E /* nvpair_alloc_system.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = nvpair_alloc_system.c; sourceTree = "<group>"; };
@@ -1256,6 +1258,7 @@
 		FA93765610A38E6300754C9E /* util */ = {
 			isa = PBXGroup;
 			children = (
+				FA6DD37E12BD5FC900B25DA9 /* string.c */,
 				FA93765710A38E6300754C9E /* qsort.c */,
 				FA93765810A38E6300754C9E /* qsort.h */,
 			);
@@ -1540,6 +1543,7 @@
 				FA17B50211E1D47A00D5C55B /* ShellScript */,
 				32A4FEBD0562C75700D090E7 /* Sources */,
 				32A4FEBF0562C75700D090E7 /* Frameworks */,
+				FA6DD3BD12BD63C000B25DA9 /* ShellScript */,
 			);
 			buildRules = (
 			);
@@ -1649,6 +1653,19 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
 			shellScript = "# Get a list of all maczfs_* tags, sorted in reverse numerical order\n# Note that both Git and awk needs to be on the path, or this step won't work\n# TODO Consider packing this into a script\n\nDESCRIPTION=`git describe --tags --long --match 'maczfs*' 2> /dev/null`\n\nif [ -n \"${DESCRIPTION}\" ]\nthen\n\t/usr/libexec/PlistBuddy -c \"Set :CFBundleShortVersionString ${DESCRIPTION}\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n\tVERSION=`echo ${DESCRIPTION} | awk -f ${SOURCE_ROOT}/support/version.awk`\n\tif [ -n \"${VERSION}\" ]\n\tthen\n\t\t/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion ${VERSION}\" \"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n\tfi\nfi\n";
+		};
+		FA6DD3BD12BD63C000B25DA9 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "echo Checking whether symbols are undefined in the kext\necho If this build stage fails, the kext is unloadable\n/usr/bin/kextutil -n ${TARGET_BUILD_DIR}/zfs.kext";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1826,6 +1843,7 @@
 				FA965A1611F366D2001E7C56 /* zmod.c in Sources */,
 				FAFCDFFC11F65BB1005259C8 /* zpool_prop.c in Sources */,
 				FAFCE00111F65BEF005259C8 /* zprop_common.c in Sources */,
+				FA6DD37F12BD5FC900B25DA9 /* string.c in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1990,7 +2008,6 @@
 				MODULE_STOP = zfs_module_stop;
 				MODULE_VERSION = 0.0.0;
 				PRODUCT_NAME = zfs;
-				VALID_ARCHS = "i386 ppc ppc7400 ppc970 x86_64";
 				VERSIONING_SYSTEM = "apple-generic";
 				WARNING_CFLAGS = "";
 				WRAPPER_EXTENSION = kext;
