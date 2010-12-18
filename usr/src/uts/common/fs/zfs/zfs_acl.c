@@ -34,7 +34,11 @@
 #include <sys/sysmacros.h>
 #include <sys/resource.h>
 #include <sys/vfs.h>
+#ifdef __APPLE__
+#include "maczfs_vnode.h"
+#else
 #include <sys/vnode.h>
+#endif
 #include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/kmem.h>

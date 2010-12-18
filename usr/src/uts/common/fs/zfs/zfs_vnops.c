@@ -37,7 +37,7 @@
 #ifdef __APPLE__
 #include <sys/kernel.h>
 #include <sys/fcntl.h>
-#include <sys/vnode.h>
+#include "maczfs_vnode.h"
 #include <sys/vnode_if.h>
 #include <sys/stat.h>
 #include <sys/ucred.h>

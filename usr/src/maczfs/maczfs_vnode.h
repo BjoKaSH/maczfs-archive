@@ -36,9 +36,14 @@
  * contributors.
  */
 
-#ifndef _SYS_VNODE_H
-#define	_SYS_VNODE_H
+#ifndef _MACZFS_SYS_VNODE_H
+#define	_MACZFS_SYS_VNODE_H
 
+#ifdef __APPLE__
+#undef vnode_t
+#include <sys/vnode.h>
+#define vnode_t struct vnode
+#else
 #include <sys/types.h>
 #include <sys/t_lock.h>
 #include <sys/rwstlock.h>
@@ -53,11 +58,13 @@
 #ifdef	_KERNEL
 #include <sys/buf.h>
 #endif	/* _KERNEL */
+#endif /* __APPLE__ */
 
 #ifdef	__cplusplus
 extern "C" {
 #endif
 
+#ifndef __APPLE__
 /*
  * Statistics for all vnode operations.
  * All operations record number of ops (since boot/mount/zero'ed).
@@ -122,6 +129,8 @@ typedef struct vopstats {
 	kstat_named_t	nretzcbuf;	/* VOP_RETZCBUF */
 } vopstats_t;
 
+#endif /* !__APPLE__ */
+
 /*
  * The vnode is the focus of all file activity in UNIX.
  * A vnode is allocated for each active file, each current
@@ -149,6 +158,8 @@ typedef struct vopstats {
  *	v_rdcnt, v_wrcnt
  *	v_mmap_read, v_mmap_write
  */
+
+#ifndef __APPLE__
 
 /*
  * vnode types.  VNON means no type.  These values are unrelated to
@@ -399,7 +410,7 @@ typedef struct xoptattr {
 	uint8_t		xoa_av_scanstamp[AV_SCANSTAMP_SZ];
 	uint8_t		xoa_reparse;
 } xoptattr_t;
-
+#endif /* !__APPLE__ */
 /*
  * The xvattr structure is really a variable length structure that
  * is made up of:
@@ -466,14 +477,21 @@ typedef struct xoptattr {
  */
 typedef struct xvattr {
 	vattr_t		xva_vattr;	/* Embedded vattr structure */
+#ifndef __APPLE__
+	// OSX doesn't support any XVAttrs at the moment, so we typedef this
+	// so we can compile source wihtout changes. It is protected by the
+	// vattr_t flags containing AT_XVATTR; if this is false, this
+	// data is not to be consulted.
 	uint32_t	xva_magic;	/* Magic Number */
 	uint32_t	xva_mapsize;	/* Size of attr bitmap (32-bit words) */
 	uint32_t	*xva_rtnattrmapp;	/* Ptr to xva_rtnattrmap[] */
 	uint32_t	xva_reqattrmap[XVA_MAPSIZE];	/* Requested attrs */
 	uint32_t	xva_rtnattrmap[XVA_MAPSIZE];	/* Returned attrs */
 	xoptattr_t	xva_xoptattrs;	/* Optional attributes */
+#endif /* __APPLE__ */
 } xvattr_t;
 
+#ifndef __APPLE__ 
 #ifdef _SYSCALL32
 /*
  * For bigtypes time_t changed to 64 bit on the 64-bit kernel.
@@ -511,6 +529,8 @@ typedef struct vattr32 {
 #define	vattr32		vattr
 typedef vattr_t		vattr32_t;
 #endif /* _SYSCALL32 */
+
+#endif /* !__APPLE__ */
 
 /*
  * Attributes of interest to the caller of setattr or getattr.
@@ -671,6 +691,7 @@ typedef vattr_t		vattr32_t;
 		((xvap)->xva_mapsize > XVA_INDEX(attr))) ?		\
 	((XVA_RTNATTRMAP(xvap))[XVA_INDEX(attr)] & XVA_ATTRBIT(attr)) : 0)
 
+#ifndef __APPLE__
 /*
  *  Modes.  Some values same as S_xxx entries from stat.h for convenience.
  */
@@ -760,6 +781,8 @@ typedef struct vsecattr {
 #define	VSA_ACECNT		0x0020
 #define	VSA_ACE_ALLTYPES	0x0040
 #define	VSA_ACE_ACLFLAGS	0x0080	/* get/set ACE ACL flags */
+	
+#endif /* !__APPLE__ */
 
 /*
  * Structure used by various vnode operations to determine
@@ -785,6 +808,8 @@ typedef struct caller_context {
  */
 #define	CC_WOULDBLOCK	0x01
 #define	CC_DONTBLOCK	0x02
+	
+#ifndef __APPLE__
 
 /*
  * Structure tags for function prototypes, defined elsewhere.
@@ -1415,8 +1440,10 @@ struct async_reqs {
 
 #endif	/* _KERNEL */
 
+#endif /* !__APPLE__ */
+	
 #ifdef	__cplusplus
 }
 #endif
 
-#endif	/* _SYS_VNODE_H */
+#endif	/* _MACZFS_SYS_VNODE_H */

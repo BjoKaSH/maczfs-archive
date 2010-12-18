@@ -43,7 +43,11 @@
 #include <sys/vfs_opreg.h>
 #endif /*!__APPLE__*/
 #include <sys/vfs.h>
+#ifdef __APPLE__
+#include "maczfs_vnode.h"
+#else
 #include <sys/vnode.h>
+#endif
 #include <sys/file.h>
 #include <sys/kmem.h>
 #include <sys/cmn_err.h>

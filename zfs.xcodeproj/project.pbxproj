@@ -90,6 +90,7 @@
 		FA0D2AC610A39F8000C63936 /* zfs_prop.c in Sources */ = {isa = PBXBuildFile; fileRef = FA9376A110A38FB500754C9E /* zfs_prop.c */; };
 		FA0D2AC710A39F8000C63936 /* zfs_prop.h in Headers */ = {isa = PBXBuildFile; fileRef = FA9376A610A38FB500754C9E /* zfs_prop.h */; };
 		FA0D2AE710A39F8000C63936 /* zvol.h in Headers */ = {isa = PBXBuildFile; fileRef = FA93760B10A38E6300754C9E /* zvol.h */; };
+		FA6DD2F212BCDEC000B25DA9 /* maczfs_vnode.h in Headers */ = {isa = PBXBuildFile; fileRef = FA6DD2F112BCDEC000B25DA9 /* maczfs_vnode.h */; };
 		FA93776610A391FD00754C9E /* zpool_iter.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93766010A38E6300754C9E /* zpool_iter.c */; };
 		FA93776710A391FD00754C9E /* zpool_vdev.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93766210A38E6300754C9E /* zpool_vdev.c */; };
 		FA93776810A391FD00754C9E /* zpool_util.c in Sources */ = {isa = PBXBuildFile; fileRef = FA93766310A38E6300754C9E /* zpool_util.c */; };
@@ -381,6 +382,7 @@
 		32A4FEC30562C75700D090E7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = zfs_kext/Info.plist; sourceTree = "<group>"; };
 		32A4FEC40562C75800D090E7 /* zfs.kext */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = zfs.kext; sourceTree = BUILT_PRODUCTS_DIR; };
 		DAD6B41710940DCF008A0395 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = /System/Library/Frameworks/Foundation.framework; sourceTree = "<absolute>"; };
+		FA6DD2F112BCDEC000B25DA9 /* maczfs_vnode.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = maczfs_vnode.h; sourceTree = "<group>"; };
 		FA93756010A38E6300754C9E /* libnvpair.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = libnvpair.c; sourceTree = "<group>"; };
 		FA93756110A38E6300754C9E /* libnvpair.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = libnvpair.h; sourceTree = "<group>"; };
 		FA93756210A38E6300754C9E /* nvpair_alloc_system.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = nvpair_alloc_system.c; sourceTree = "<group>"; };
@@ -1333,6 +1335,7 @@
 		FA9656A711F1BFA3001E7C56 /* maczfs */ = {
 			isa = PBXGroup;
 			children = (
+				FA6DD2F112BCDEC000B25DA9 /* maczfs_vnode.h */,
 				FA96584511F304B1001E7C56 /* maczfs_file.h */,
 				FA96584611F304B1001E7C56 /* maczfs_libc.h */,
 				FA96584711F304B1001E7C56 /* maczfs_mount.h */,
@@ -1413,6 +1416,7 @@
 				FA0D2AC510A39F8000C63936 /* zfs_namecheck.h in Headers */,
 				FA0D2AC710A39F8000C63936 /* zfs_prop.h in Headers */,
 				FA0D2AE710A39F8000C63936 /* zvol.h in Headers */,
+				FA6DD2F212BCDEC000B25DA9 /* maczfs_vnode.h in Headers */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
