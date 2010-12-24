@@ -94,6 +94,8 @@ typedef struct credsid {
 	ksidlist_t	*kr_sidlist;		/* List of SIDS */
 } credsid_t;
 
+#ifndef __APPLE__
+
 const char *ksid_getdomain(ksid_t *);
 uint_t ksid_getrid(ksid_t *);
 
@@ -118,6 +120,8 @@ void ksidlist_hold(ksidlist_t *);
 ksiddomain_t *ksid_lookupdomain(const char *);
 
 ksidlist_t *kcrsid_gidstosids(int, gid_t *);
+
+#endif /* !__APPLE__ */
 
 #else
 

@@ -650,7 +650,9 @@ zfs_copy_fuid_2_ace(zfsvfs_t *zfsvfs, zfs_acl_t *aclp, void *datap, int filter)
 		acep->a_type = type;
 		acep = (ace_t *)((caddr_t)acep + ace_size);
 	}
+#ifndef __APPLE__
 	zfs_fuid_get_mappings(&hdl);
+#endif
 }
 
 static int

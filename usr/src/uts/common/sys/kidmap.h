@@ -49,10 +49,20 @@ extern "C" {
 #endif
 
 /* Opaque get handle */
+#ifdef __APPLE__
+typedef void idmap_get_handle_t;
+#else
 typedef struct idmap_get_handle idmap_get_handle_t;
+#endif
 
 /* Return status */
 typedef	int32_t idmap_stat;
+
+#define	kidmap_get_create() NULL
+
+
+
+#ifndef __APPLE__
 
 /*
  * In all the routines a Windows SID is handled as a
@@ -65,6 +75,7 @@ typedef	int32_t idmap_stat;
  * These strings are stored internally and should not be modified
  * or freed.
  */
+
 
 
 /*
@@ -87,7 +98,6 @@ kidmap_getsidbyuid(uid_t uid, const char **sid_prefix, uint32_t *rid);
 
 idmap_stat
 kidmap_getsidbygid(gid_t gid, const char **sid_prefix, uint32_t *rid);
-
 
 
 /*
@@ -127,7 +137,6 @@ idmap_stat
 kidmap_batch_getsidbygid(idmap_get_handle_t *get_handle, gid_t gid,
 		const char **sid_prefix, uint32_t *rid, idmap_stat *stat);
 
-#ifndef __APPLE__
 /*
  * Process the queued "get mapping" requests. The results (i.e.
  * status and identity) will be available in the data areas
@@ -157,6 +166,7 @@ typedef struct idmap_reg idmap_reg_t;
 
 void idmap_get_door(idmap_reg_t **state, door_handle_t *dh);
 void idmap_release_door(idmap_reg_t *idmp);
+
 #endif /* !__APPLE__ */
 
 #ifdef	__cplusplus

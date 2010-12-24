@@ -124,6 +124,8 @@ zfs_fuid_init(zfsvfs_t *zfsvfs, dmu_tx_t *tx)
 		return;
 	}
 
+#ifndef __APPLE__
+
 	if (zfsvfs->z_fuid_obj == 0) {
 
 		/* first make sure we need to allocate object */
@@ -201,11 +203,14 @@ zfs_fuid_init(zfsvfs_t *zfsvfs, dmu_tx_t *tx)
 	}
 	kmem_free(packed, nvsize);
 
+#endif
+
 initialized:
 	zfsvfs->z_fuid_loaded = B_TRUE;
 	rw_exit(&zfsvfs->z_fuid_lock);
 }
 
+#ifndef __APPLE__
 /*
  * Query domain table for a given domain.
  *
@@ -298,6 +303,7 @@ zfs_fuid_find_by_domain(zfsvfs_t *zfsvfs, const char *domain, char **retdomain,
 		return (retidx);
 	}
 }
+#endif /* !__APPLE__ */
 
 /*
  * Query domain table by index, returning domain string
@@ -327,6 +333,7 @@ zfs_fuid_find_by_idx(zfsvfs_t *zfsvfs, uint64_t idx)
 	return (findnode->f_domain->f_ksid->kd_name);
 }
 
+#ifndef __APPLE__
 void
 zfs_fuid_get_mappings(zfs_fuid_hdl_t *hdl)
 {
@@ -340,6 +347,7 @@ zfs_fuid_get_mappings(zfs_fuid_hdl_t *hdl)
 	hdl->z_hdl = NULL;
 	hdl->z_map_needed = B_FALSE;
 }
+#endif /* !__APPLE__ */
 
 void
 zfs_fuid_queue_map_id(zfsvfs_t *zfsvfs, zfs_fuid_hdl_t *hdl,
@@ -364,12 +372,16 @@ zfs_fuid_queue_map_id(zfsvfs_t *zfsvfs, zfs_fuid_hdl_t *hdl,
 	domain = zfs_fuid_find_by_idx(zfsvfs, index);
 	ASSERT(domain != NULL);
 
+#ifdef __APPLE__
+	fuid = UID_NOBODY;
+#else
 	if (type == ZFS_OWNER || type == ZFS_ACE_USER)
 		status = kidmap_batch_getuidbysid(hdl->z_hdl, domain,
 		    FUID_RID(fuid), id, &hdl->z_status);
 	else
 		status = kidmap_batch_getgidbysid(hdl->z_hdl, domain,
 		    FUID_RID(fuid), id, &hdl->z_status);
+#endif
 	ASSERT(status == 0);
 }
 
@@ -392,8 +404,9 @@ zfs_fuid_map_ids(znode_t *zp, uid_t *uid, uid_t *gid)
 
 		zfs_fuid_queue_map_id(zp->z_zfsvfs, &hdl,
 		    zp->z_phys->zp_gid, ZFS_GROUP, gid);
-
+#ifndef __APPLE__
 		zfs_fuid_get_mappings(&hdl);
+#endif
 	}
 }
 
@@ -412,10 +425,14 @@ zfs_fuid_map_id(zfsvfs_t *zfsvfs, uint64_t fuid,
 	domain = zfs_fuid_find_by_idx(zfsvfs, index);
 	ASSERT(domain != NULL);
 
+#ifdef __APPLE__
+	fuid = UID_NOBODY;
+#else
 	if (type == ZFS_OWNER || type == ZFS_ACE_USER)
 		(void) kidmap_getuidbysid(domain, FUID_RID(fuid), id);
 	else
 		(void) kidmap_getgidbysid(domain, FUID_RID(fuid), id);
+#endif
 }
 
 /*
@@ -507,6 +524,9 @@ zfs_fuid_create_cred(zfsvfs_t *zfsvfs, uint64_t id,
 	if (zfsvfs->z_use_fuids == B_FALSE || !IS_EPHEMERAL(id))
 		return ((uint64_t)id);
 
+#ifdef __APPLE__
+	return (UID_NOBODY);
+#else
 	ksid = crgetsid(cr, (type == ZFS_OWNER) ? KSID_OWNER : KSID_GROUP);
 
 	VERIFY(ksid != NULL);
@@ -518,6 +538,7 @@ zfs_fuid_create_cred(zfsvfs_t *zfsvfs, uint64_t id,
 	zfs_fuid_node_add(fuidp, kdomain, rid, idx, id, type);
 
 	return (FUID_ENCODE(idx, rid));
+#endif
 }
 
 /*
@@ -549,6 +570,9 @@ zfs_fuid_create(zfsvfs_t *zfsvfs, uint64_t id,
 	if (!IS_EPHEMERAL(id) || fuid_idx != 0)
 		return (id);
 
+#ifdef __APPLE__
+	return (UID_NOBODY);
+#else
 	if (is_replay) {
 		fuidp = zfsvfs->z_fuid_replay;
 
@@ -598,6 +622,7 @@ zfs_fuid_create(zfsvfs_t *zfsvfs, uint64_t id,
 		kmem_free(zfuid, sizeof (zfs_fuid_t));
 	}
 	return (FUID_ENCODE(idx, rid));
+#endif /* __APPLE__ */
 }
 
 void
@@ -612,6 +637,9 @@ zfs_fuid_destroy(zfsvfs_t *zfsvfs)
 		rw_exit(&zfsvfs->z_fuid_lock);
 		return;
 	}
+
+#ifndef __APPLE__
+
 	cookie = NULL;
 	while (domnode = avl_destroy_nodes(&zfsvfs->z_fuid_domain, &cookie)) {
 		ksiddomain_rele(domnode->f_ksid);
@@ -622,6 +650,8 @@ zfs_fuid_destroy(zfsvfs_t *zfsvfs)
 	while (idxnode = avl_destroy_nodes(&zfsvfs->z_fuid_idx, &cookie))
 		kmem_free(idxnode, sizeof (fuid_idx_t));
 	avl_destroy(&zfsvfs->z_fuid_idx);
+#endif
+
 	rw_exit(&zfsvfs->z_fuid_lock);
 }
 
