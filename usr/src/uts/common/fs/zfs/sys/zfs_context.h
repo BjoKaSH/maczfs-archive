@@ -319,8 +319,6 @@ extern void arc_get_stats(zfs_memory_stats_t *stats);
 //#define	FASYNC		O_SYNC
 #define	FNOFOLLOW	O_NOFOLLOW
 
-#define kcred	(cred_t *)NOCRED
-
 /* Buffer flags not used in Mac OS X */
 #define B_FAILFAST  0
 
@@ -389,8 +387,6 @@ extern void delay();
 extern char *strrchr(const char *, int);
 
 #define IS_DEVVP(vp)	(0)
-
-#define	CRED()		(cred_t *)kauth_cred_get()
 
 /*
  * The general purpose memory allocator in open solaris

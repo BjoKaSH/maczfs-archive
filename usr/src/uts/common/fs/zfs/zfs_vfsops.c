@@ -2258,7 +2258,7 @@ out:
 	ZFS_EXIT(zfsvfs);
 	return (error);
 }
-#endif __APPLE__
+#endif /* __APPLE__ */
 
 #ifdef __APPLE__
 /*

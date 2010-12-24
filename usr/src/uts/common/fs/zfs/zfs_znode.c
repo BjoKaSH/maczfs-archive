@@ -1284,7 +1284,7 @@ zfs_znode_free(znode_t *zp)
 	znode_stalker_fini(zp);
 #endif /* ZFS_DEBUG */
 
-#endif __APPLE__
+#endif /* __APPLE__ */
 
 	kmem_cache_free(znode_cache, zp);
 

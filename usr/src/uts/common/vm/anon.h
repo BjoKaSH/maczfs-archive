@@ -470,6 +470,6 @@ extern int anon_debug;
 }
 #endif
 
-#endif  /* INTENTIONALLY_LEFT_BLANK *//
+#endif  /* INTENTIONALLY_LEFT_BLANK */
 
 #endif	/* _VM_ANON_H */

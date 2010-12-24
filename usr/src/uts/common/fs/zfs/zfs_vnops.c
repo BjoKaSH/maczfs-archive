@@ -1560,7 +1560,7 @@ zfs_vnop_lookup(struct vnop_lookup_args *ap)
 	cctx.componentname = cnp;
 	int flags = 0;
 	
-	return(zfs_lookup(dvp, name, &vpp, pnp, flags, rdir, cr, &cctx, direntflags, realpnp));
+	return(zfs_lookup(dvp, name, vpp, pnp, flags, rdir, cr, &cctx, direntflags, realpnp));
 }
 #endif /* __APPLE__ */
 
@@ -2378,7 +2378,7 @@ zfs_vnop_mkdir(struct vnop_mkdir_args *ap)
 	int flags = 0;
 	vsecattr_t *vsecp = NULL;
 	
-	return(zfs_mkdir(dvp, dirname, vap, &vpp, cr, &cctx, flags, vsecp));
+	return(zfs_mkdir(dvp, dirname, vap, vpp, cr, &cctx, flags, vsecp));
 }
 #endif /* __APPLE__ */
 
@@ -2940,7 +2940,7 @@ static int
 zfs_vnop_fsync(struct vnop_fsync_args *ap)
 #else
 zfs_fsync(vnode_t *vp, int syncflag, cred_t *cr, caller_context_t *ct)
-#endif __APPLE__
+#endif /* __APPLE__ */
 {
 #ifdef __APPLE__
 	vnode_t  *vp = ap->a_vp;
@@ -3439,7 +3439,7 @@ top:
 		ubc_setsize(vp, vap->va_data_size);
 
 		VATTR_SET_SUPPORTED(vap, va_data_size);
-#endif __APPLE__
+#endif /* __APPLE__ */
 	}
 
 #ifndef __APPLE__
