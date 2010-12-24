@@ -201,9 +201,7 @@ int zfs_recover = 0;
 #define	SPA_MINREF	5	/* spa_refcnt for an open-but-idle pool */
 
 /*
- * ==========================================================================
  * SPA namespace functions
- * ==========================================================================
  */
 
 /*
@@ -279,6 +277,8 @@ spa_add(const char *name, const char *altroot)
 
 	avl_add(&spa_namespace_avl, spa);
 
+	mutex_init(&spa->spa_zio_lock, NULL, MUTEX_DEFAULT, NULL);
+
 	/*
 	 * Set the alternate root, if there is one.
 	 */
@@ -313,6 +313,11 @@ spa_remove(spa_t *spa)
 	if (spa->spa_name)
 		spa_strfree(spa->spa_name);
 
+	if (spa->spa_config_dir)
+		spa_strfree(spa->spa_config_dir);
+	if (spa->spa_config_file)
+		spa_strfree(spa->spa_config_file);
+
 	spa_config_set(spa, NULL);
 
 	refcount_destroy(&spa->spa_refcount);
@@ -334,6 +339,7 @@ spa_remove(spa_t *spa)
 	mutex_destroy(&spa->spa_sync_bplist.bpl_lock);
 	mutex_destroy(&spa->spa_history_lock);
 	mutex_destroy(&spa->spa_props_lock);
+	mutex_destroy(&spa->spa_zio_lock);
 
 	kmem_free(spa, sizeof (spa_t));
 }
@@ -354,9 +360,7 @@ spa_next(spa_t *prev)
 }
 
 /*
- * ==========================================================================
  * SPA refcount functions
- * ==========================================================================
  */
 
 /*
@@ -399,9 +403,7 @@ spa_refcount_zero(spa_t *spa)
 }
 
 /*
- * ==========================================================================
  * SPA spare tracking
- * ==========================================================================
  */
 
 /*
@@ -539,9 +541,7 @@ spa_spare_activate(vdev_t *vd)
 }
 
 /*
- * ==========================================================================
  * SPA config locking
- * ==========================================================================
  */
 void
 spa_config_enter(spa_t *spa, krw_t rw, void *tag)
@@ -562,9 +562,7 @@ spa_config_held(spa_t *spa, krw_t rw)
 }
 
 /*
- * ==========================================================================
  * SPA vdev locking
- * ==========================================================================
  */
 
 /*
@@ -647,9 +645,7 @@ spa_vdev_exit(spa_t *spa, vdev_t *vd, uint64_t txg, int error)
 }
 
 /*
- * ==========================================================================
  * Miscellaneous functions
- * ==========================================================================
  */
 
 /*
@@ -850,9 +846,7 @@ zfs_panic_recover(const char *fmt, ...)
 }
 
 /*
- * ==========================================================================
  * Accessor functions
- * ==========================================================================
  */
 
 krwlock_t *
@@ -995,6 +989,16 @@ spa_get_asize(spa_t *spa, uint64_t lsize)
 	return (lsize * 6);
 }
 
+/*
+ * Return the failure mode that has been set to this pool. The default
+ * behavior will be to block all I/Os when a complete failure occurs.
+ */
+uint8_t
+spa_get_failmode(spa_t *spa)
+{
+	return (spa->spa_failmode);
+}
+
 uint64_t
 spa_version(spa_t *spa)
 {
@@ -1035,9 +1039,7 @@ bp_get_dasize(spa_t *spa, const blkptr_t *bp)
 }
 
 /*
- * ==========================================================================
  * Initialization and Termination
- * ==========================================================================
  */
 
 static int

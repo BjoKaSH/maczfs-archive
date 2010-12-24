@@ -22,6 +22,10 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Portions Copyright 2008 Apple Inc. All rights reserved.
+ * Use is subject to license terms.
+ * Portions Copyright 2010 Alex Blewitt. All rights reserved.
+ * Use is subject to license terms.
  */
 
 /*
@@ -36,7 +40,9 @@
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 #include <sys/idmap.h>
+#ifndef __APPLE__
 #include <sys/door.h>
+#endif
 
 #ifdef	__cplusplus
 extern "C" {
@@ -121,6 +127,7 @@ idmap_stat
 kidmap_batch_getsidbygid(idmap_get_handle_t *get_handle, gid_t gid,
 		const char **sid_prefix, uint32_t *rid, idmap_stat *stat);
 
+#ifndef __APPLE__
 /*
  * Process the queued "get mapping" requests. The results (i.e.
  * status and identity) will be available in the data areas
@@ -150,6 +157,7 @@ typedef struct idmap_reg idmap_reg_t;
 
 void idmap_get_door(idmap_reg_t **state, door_handle_t *dh);
 void idmap_release_door(idmap_reg_t *idmp);
+#endif /* !__APPLE__ */
 
 #ifdef	__cplusplus
 }

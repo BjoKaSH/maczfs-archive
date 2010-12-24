@@ -39,6 +39,9 @@
 #include <sys/varargs.h>
 #include <ucred.h>
 #endif /*!__APPLE__*/
+#ifdef __APPLE__
+#include <sys/zfs_ioctl.h>
+#endif
 #include <sys/fs/zfs.h>
 #include <sys/avl.h>
 #ifdef __APPLE__
@@ -117,6 +120,9 @@ enum {
 	EZFS_BADPERMSET,	/* invalid permission set name */
 	EZFS_NODELEGATION,	/* delegated administration is disabled */
 	EZFS_PERMRDONLY,	/* pemissions are readonly */
+	EZFS_UNSHARESMBFAILED,	/* failed to unshare over smb */
+	EZFS_SHARESMBFAILED,	/* failed to share over smb */
+	EZFS_BADCACHE,		/* bad cache file */
 	EZFS_UNKNOWN
 };
 
@@ -295,6 +301,7 @@ extern int zpool_import_props(libzfs_handle_t *, nvlist_t *, const char *,
  * Search for pools to import
  */
 extern nvlist_t *zpool_find_import(libzfs_handle_t *, int, char **);
+extern nvlist_t *zpool_find_import_cached(libzfs_handle_t *, const char *);
 
 /*
  * Miscellaneous pool functions
@@ -327,7 +334,6 @@ extern const char *zfs_get_name(const zfs_handle_t *);
 /*
  * zfs dataset property management
  */
-extern int zfs_prop_valid_for_type(zfs_prop_t, int);
 extern const char *zfs_prop_default_string(zfs_prop_t);
 extern uint64_t zfs_prop_default_numeric(zfs_prop_t);
 extern const char *zfs_prop_column_name(zfs_prop_t);
@@ -421,10 +427,21 @@ extern int zfs_clone(zfs_handle_t *, const char *, nvlist_t *);
 extern int zfs_snapshot(libzfs_handle_t *, const char *, boolean_t);
 extern int zfs_rollback(zfs_handle_t *, zfs_handle_t *, int);
 extern int zfs_rename(zfs_handle_t *, const char *, boolean_t);
-extern int zfs_send(zfs_handle_t *, const char *, int);
-extern int zfs_receive(libzfs_handle_t *, const char *, int, int, int,
-    boolean_t, int);
+extern int zfs_send(zfs_handle_t *, const char *, const char *,
+    boolean_t, boolean_t, boolean_t, boolean_t, int);
 extern int zfs_promote(zfs_handle_t *);
+
+typedef struct recvflags {
+	boolean_t verbose : 1;
+	boolean_t isprefix : 1;
+	boolean_t dryrun : 1;
+	boolean_t force : 1;
+	boolean_t canmountoff : 1;
+	boolean_t byteswap : 1;
+} recvflags_t;
+
+extern int zfs_receive(libzfs_handle_t *, const char *, recvflags_t,
+    int, avl_tree_t *);
 
 /*
  * Miscellaneous functions.
@@ -466,9 +483,16 @@ extern int zfs_unshare(zfs_handle_t *);
  * Protocol-specific share support functions.
  */
 extern boolean_t zfs_is_shared_nfs(zfs_handle_t *, char **);
+extern boolean_t zfs_is_shared_smb(zfs_handle_t *, char **);
 extern int zfs_share_nfs(zfs_handle_t *);
+extern int zfs_share_smb(zfs_handle_t *);
+extern int zfs_shareall(zfs_handle_t *);
 extern int zfs_unshare_nfs(zfs_handle_t *, const char *);
+extern int zfs_unshare_smb(zfs_handle_t *, const char *);
 extern int zfs_unshareall_nfs(zfs_handle_t *);
+extern int zfs_unshareall_smb(zfs_handle_t *);
+extern int zfs_unshareall_bypath(zfs_handle_t *, const char *);
+extern int zfs_unshareall(zfs_handle_t *);
 extern boolean_t zfs_is_shared_iscsi(zfs_handle_t *);
 extern int zfs_share_iscsi(zfs_handle_t *);
 extern int zfs_unshare_iscsi(zfs_handle_t *);
@@ -478,7 +502,7 @@ extern int zfs_iscsi_perm_check(libzfs_handle_t *, char *, struct ucred *);
 extern int zfs_iscsi_perm_check(libzfs_handle_t *, char *, ucred_t *);
 #endif
 extern int zfs_deleg_share_nfs(libzfs_handle_t *, char *, char *,
-    void *, void *, int, boolean_t);
+    void *, void *, int, zfs_share_op_t);
 
 /*
  * When dealing with nvlists, verify() is extremely useful

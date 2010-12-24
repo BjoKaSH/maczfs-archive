@@ -35,4 +35,6 @@
 #define readdir64 readdir
 #define open64 open
 
+#define MS_FORCE MNT_FORCE
+
 #endif /* _MACZFS_MOUNT_H */

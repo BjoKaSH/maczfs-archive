@@ -69,9 +69,7 @@ int zio_taskq_threads = 8;
 static void spa_sync_props(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx);
 
 /*
- * ==========================================================================
  * SPA properties routines
- * ==========================================================================
  */
 
 /*
@@ -116,6 +114,8 @@ spa_prop_get_config(spa_t *spa, nvlist_t **nvp)
 	uint64_t cap, version;
 	zprop_source_t src = ZPROP_SRC_NONE;
 	int err;
+	char *cachefile;
+	size_t len;
 
 	/*
 	 * readonly properties
@@ -165,14 +165,24 @@ spa_prop_get_config(spa_t *spa, nvlist_t **nvp)
 			return (err);
 	}
 
-	if (spa->spa_temporary ==
-	    zpool_prop_default_numeric(ZPOOL_PROP_TEMPORARY))
-		src = ZPROP_SRC_DEFAULT;
-	else
-		src = ZPROP_SRC_LOCAL;
-	if (err = spa_prop_add_list(*nvp, ZPOOL_PROP_TEMPORARY, NULL,
-	    spa->spa_temporary, src))
-		return (err);
+	if (spa->spa_config_dir != NULL) {
+		if (strcmp(spa->spa_config_dir, "none") == 0) {
+			err = spa_prop_add_list(*nvp, ZPOOL_PROP_CACHEFILE,
+			    spa->spa_config_dir, 0, ZPROP_SRC_LOCAL);
+		} else {
+			len = strlen(spa->spa_config_dir) +
+			    strlen(spa->spa_config_file) + 2;
+			cachefile = kmem_alloc(len, KM_SLEEP);
+			(void) snprintf(cachefile, len, "%s/%s",
+			    spa->spa_config_dir, spa->spa_config_file);
+			err = spa_prop_add_list(*nvp, ZPOOL_PROP_CACHEFILE,
+			    cachefile, 0, ZPROP_SRC_LOCAL);
+			kmem_free(cachefile, len);
+		}
+
+		if (err)
+			return (err);
+	}
 
 	return (0);
 }
@@ -305,6 +315,7 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 		vdev_t *rvdev;
 		char *vdev_type;
 		objset_t *os;
+		char *slash;
 
 		propname = nvpair_name(elem);
 
@@ -364,6 +375,50 @@ spa_prop_validate(spa_t *spa, nvlist_t *props)
 				dmu_objset_close(os);
 			}
 			break;
+		case ZPOOL_PROP_FAILUREMODE:
+			error = nvpair_value_uint64(elem, &intval);
+			if (!error && (intval < ZIO_FAILURE_MODE_WAIT ||
+			    intval > ZIO_FAILURE_MODE_PANIC))
+				error = EINVAL;
+
+			/*
+			 * This is a special case which only occurs when
+			 * the pool has completely failed. This allows
+			 * the user to change the in-core failmode property
+			 * without syncing it out to disk (I/Os might
+			 * currently be blocked). We do this by returning
+			 * EIO to the caller (spa_prop_set) to trick it
+			 * into thinking we encountered a property validation
+			 * error.
+			 */
+			if (!error && spa_state(spa) == POOL_STATE_IO_FAILURE) {
+				spa->spa_failmode = intval;
+				error = EIO;
+			}
+			break;
+
+		case ZPOOL_PROP_CACHEFILE:
+			if ((error = nvpair_value_string(elem, &strval)) != 0)
+				break;
+
+			if (strval[0] == '\0')
+				break;
+
+			if (strcmp(strval, "none") == 0)
+				break;
+
+			if (strval[0] != '/') {
+				error = EINVAL;
+				break;
+			}
+
+			slash = strrchr(strval, '/');
+			ASSERT(slash != NULL);
+
+			if (slash[1] == '\0' || strcmp(slash, "/.") == 0 ||
+			    strcmp(slash, "/..") == 0)
+				error = EINVAL;
+			break;
 		}
 
 		if (error)
@@ -410,9 +465,7 @@ spa_prop_clear_bootfs(spa_t *spa, uint64_t dsobj, dmu_tx_t *tx)
 }
 
 /*
- * ==========================================================================
  * SPA state manipulation (open/create/destroy/import/export)
- * ==========================================================================
  */
 
 static int
@@ -479,6 +532,8 @@ spa_activate(spa_t *spa)
 
 	list_create(&spa->spa_dirty_list, sizeof (vdev_t),
 	    offsetof(vdev_t, vdev_dirty_node));
+	list_create(&spa->spa_zio_list, sizeof (zio_t),
+	    offsetof(zio_t, zio_link_node));
 
 	txg_list_create(&spa->spa_vdev_txg_list,
 	    offsetof(struct vdev, vdev_txg_node));
@@ -509,6 +564,7 @@ spa_deactivate(spa_t *spa)
 	txg_list_destroy(&spa->spa_vdev_txg_list);
 
 	list_destroy(&spa->spa_dirty_list);
+	list_destroy(&spa->spa_zio_list);
 
 	for (t = 0; t < ZIO_TYPES; t++) {
 		taskq_destroy(spa->spa_zio_issue_taskq[t]);
@@ -1081,6 +1137,10 @@ spa_load(spa_t *spa, nvlist_t *config, spa_load_state_t state, int mosconfig)
 		    spa->spa_pool_props_object,
 		    zpool_prop_to_name(ZPOOL_PROP_DELEGATION),
 		    sizeof (uint64_t), 1, &spa->spa_delegation);
+		(void) zap_lookup(spa->spa_meta_objset,
+		    spa->spa_pool_props_object,
+		    zpool_prop_to_name(ZPOOL_PROP_FAILUREMODE),
+		    sizeof (uint64_t), 1, &spa->spa_failmode);
 	}
 
 	/*
@@ -1621,7 +1681,7 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
 	 */
 	spa->spa_bootfs = zpool_prop_default_numeric(ZPOOL_PROP_BOOTFS);
 	spa->spa_delegation = zpool_prop_default_numeric(ZPOOL_PROP_DELEGATION);
-	spa->spa_temporary = zpool_prop_default_numeric(ZPOOL_PROP_TEMPORARY);
+	spa->spa_failmode = zpool_prop_default_numeric(ZPOOL_PROP_FAILUREMODE);
 	if (props)
 		spa_sync_props(spa, props, CRED(), tx);
 
@@ -1899,6 +1959,8 @@ spa_export_common(char *pool, int new_state, nvlist_t **oldconfig)
 		VERIFY(nvlist_dup(spa->spa_config, oldconfig, 0) == 0);
 
 	if (new_state != POOL_STATE_UNINITIALIZED) {
+		spa_config_check(spa->spa_config_dir,
+		    spa->spa_config_file);
 		spa_remove(spa);
 		spa_config_sync();
 	}
@@ -1937,9 +1999,7 @@ spa_reset(char *pool)
 
 
 /*
- * ==========================================================================
  * Device manipulation
- * ==========================================================================
  */
 
 /*
@@ -2672,9 +2732,7 @@ spa_vdev_setpath(spa_t *spa, uint64_t guid, const char *newpath)
 }
 
 /*
- * ==========================================================================
  * SPA Scrubbing
- * ==========================================================================
  */
 
 static void
@@ -3078,9 +3136,7 @@ spa_scrub(spa_t *spa, pool_scrub_type_t type, boolean_t force)
 }
 
 /*
- * ==========================================================================
  * SPA async task processing
- * ==========================================================================
  */
 
 static void
@@ -3095,7 +3151,7 @@ spa_async_remove(spa_t *spa, vdev_t *vd)
 			tvd->vdev_remove_wanted = 0;
 			vdev_set_state(tvd, B_FALSE, VDEV_STATE_REMOVED,
 			    VDEV_AUX_NONE);
-			vdev_clear(spa, tvd);
+			vdev_clear(spa, tvd, B_TRUE);
 			vdev_config_dirty(tvd->vdev_top);
 		}
 		spa_async_remove(spa, tvd);
@@ -3126,8 +3182,14 @@ spa_async_thread(spa_t *spa)
 
 	/*
 	 * See if any devices need to be marked REMOVED.
+	 *
+	 * XXX - We avoid doing this when we are in
+	 * I/O failure state since spa_vdev_enter() grabs
+	 * the namespace lock and would not be able to obtain
+	 * the writer config lock.
 	 */
-	if (tasks & SPA_ASYNC_REMOVE) {
+	if (tasks & SPA_ASYNC_REMOVE &&
+	    spa_state(spa) != POOL_STATE_IO_FAILURE) {
 		txg = spa_vdev_enter(spa);
 		spa_async_remove(spa, spa->spa_root_vdev);
 		(void) spa_vdev_exit(spa, NULL, txg, 0);
@@ -3213,9 +3275,7 @@ spa_async_request(spa_t *spa, int task)
 }
 
 /*
- * ==========================================================================
  * SPA syncing routines
- * ==========================================================================
  */
 
 static void
@@ -3347,7 +3407,7 @@ spa_sync_props(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	nvlist_t *nvp = arg2;
 	nvpair_t *elem;
 	uint64_t intval = SPA_VERSION;
-	char *strval;
+	char *strval, *slash;
 	zpool_prop_t prop;
 	const char *propname;
 	zprop_type_t proptype;
@@ -3379,14 +3439,33 @@ spa_sync_props(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 			ASSERT(spa->spa_root != NULL);
 			break;
 
-		case ZPOOL_PROP_TEMPORARY:
+		case ZPOOL_PROP_CACHEFILE:
 			/*
-			 * 'temporary' is a non-persistant property.
+			 * 'cachefile' is a non-persistent property, but note
+			 * an async request that the config cache needs to be
+			 * udpated.
 			 */
-			VERIFY(nvpair_value_uint64(elem, &intval) == 0);
-			spa->spa_temporary = intval;
-			break;
+			VERIFY(nvpair_value_string(elem, &strval) == 0);
+			if (spa->spa_config_dir)
+				spa_strfree(spa->spa_config_dir);
+			if (spa->spa_config_file)
+				spa_strfree(spa->spa_config_file);
 
+			if (strval[0] == '\0') {
+				spa->spa_config_dir = NULL;
+				spa->spa_config_file = NULL;
+			} else if (strcmp(strval, "none") == 0) {
+				spa->spa_config_dir = spa_strdup(strval);
+				spa->spa_config_file = NULL;
+			} else {
+				slash = strrchr(strval, '/');
+				ASSERT(slash != NULL);
+				*slash = '\0';
+				spa->spa_config_dir = spa_strdup(strval);
+				spa->spa_config_file = spa_strdup(slash + 1);
+			}
+			spa_async_request(spa, SPA_ASYNC_CONFIG_UPDATE);
+			break;
 		default:
 			/*
 			 * Set pool property values in the poolprops mos object.
@@ -3432,11 +3511,19 @@ spa_sync_props(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 				ASSERT(0); /* not allowed */
 			}
 
-			if (prop ==  ZPOOL_PROP_DELEGATION)
+			switch (prop) {
+			case ZPOOL_PROP_DELEGATION:
 				spa->spa_delegation = intval;
-
-			if (prop == ZPOOL_PROP_BOOTFS)
+				break;
+			case ZPOOL_PROP_BOOTFS:
 				spa->spa_bootfs = intval;
+				break;
+			case ZPOOL_PROP_FAILUREMODE:
+				spa->spa_failmode = intval;
+				break;
+			default:
+				break;
+			}
 		}
 
 		/* log internal history if this is not a zpool create */
@@ -3642,9 +3729,7 @@ spa_sync_allpools(void)
 }
 
 /*
- * ==========================================================================
  * Miscellaneous routines
- * ==========================================================================
  */
 
 /*

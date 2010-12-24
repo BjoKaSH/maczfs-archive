@@ -105,6 +105,14 @@ typedef enum {
 	ZFS_PROP_NUMCLONES,		/* not exposed to the user */
 	ZFS_PROP_COPIES,
 	ZFS_PROP_VERSION,
+	ZFS_PROP_UTF8ONLY,
+	ZFS_PROP_NORMALIZE,
+	ZFS_PROP_CASE,
+	ZFS_PROP_VSCAN,
+	ZFS_PROP_NBMAND,
+	ZFS_PROP_SHARESMB,
+	ZFS_PROP_REFQUOTA,
+	ZFS_PROP_REFRESERVATION,
 	ZFS_NUM_PROPS
 } zfs_prop_t;
 
@@ -127,7 +135,8 @@ typedef enum {
 	ZPOOL_PROP_BOOTFS,
 	ZPOOL_PROP_DELEGATION,
 	ZPOOL_PROP_AUTOREPLACE,
-	ZPOOL_PROP_TEMPORARY,
+	ZPOOL_PROP_CACHEFILE,
+	ZPOOL_PROP_FAILUREMODE,
 	ZPOOL_NUM_PROPS
 } zpool_prop_t;
 
@@ -156,11 +165,13 @@ const char *zfs_prop_default_string(zfs_prop_t);
 uint64_t zfs_prop_default_numeric(zfs_prop_t);
 boolean_t zfs_prop_readonly(zfs_prop_t);
 boolean_t zfs_prop_inheritable(zfs_prop_t);
+boolean_t zfs_prop_setonce(zfs_prop_t);
 const char *zfs_prop_to_name(zfs_prop_t);
 zfs_prop_t zfs_name_to_prop(const char *);
 boolean_t zfs_prop_user(const char *);
 int zfs_prop_index_to_string(zfs_prop_t, uint64_t, const char **);
 int zfs_prop_string_to_index(zfs_prop_t, const char *, uint64_t *);
+int zfs_prop_valid_for_type(int, zfs_type_t);
 
 /*
  * Pool property functions shared between libzfs and kernel.
@@ -202,6 +213,13 @@ typedef enum {
 #define	ZFS_DELEG_PERM_GID	"gid"
 #define	ZFS_DELEG_PERM_GROUPS	"groups"
 
+typedef enum zfs_share_op {
+	ZFS_SHARE_NFS = 0,
+	ZFS_UNSHARE_NFS = 1,
+	ZFS_SHARE_SMB = 2,
+	ZFS_UNSHARE_SMB = 3
+} zfs_share_op_t;
+
 /*
  * On-disk version number.
  */
@@ -213,13 +231,15 @@ typedef enum {
 #define	SPA_VERSION_6			6ULL
 #define	SPA_VERSION_7			7ULL
 #define	SPA_VERSION_8			8ULL
+#define	SPA_VERSION_9			9ULL
+
 /*
  * When bumping up SPA_VERSION, make sure GRUB ZFS understand the on-disk
  * format change. Go to usr/src/grub/grub-0.95/stage2/{zfs-include/, fsys_zfs*},
  * and do the appropriate changes.
  */
-#define	SPA_VERSION			SPA_VERSION_8
-#define	SPA_VERSION_STRING		"8"
+#define	SPA_VERSION			SPA_VERSION_9
+#define	SPA_VERSION_STRING		"9"
 
 /*
  * Symbolic names for the changes that caused a SPA_VERSION switch.
@@ -244,6 +264,11 @@ typedef enum {
 #define	SPA_VERSION_BOOTFS		SPA_VERSION_6
 #define	SPA_VERSION_SLOGS		SPA_VERSION_7
 #define	SPA_VERSION_DELEGATED_PERMS	SPA_VERSION_8
+#define	SPA_VERSION_FUID		SPA_VERSION_9
+#define	SPA_VERSION_NORMALIZATION	SPA_VERSION_9
+#define	SPA_VERSION_REFRESERVATION	SPA_VERSION_9
+#define	SPA_VERSION_REFQUOTA		SPA_VERSION_9
+#define	SPA_VERSION_UNIQUE_ACCURATE	SPA_VERSION_9
 
 /*
  * ZPL version - rev'd whenever an incompatible on-disk format change
@@ -255,11 +280,14 @@ typedef enum {
  */
 #define	ZPL_VERSION_1			1ULL
 #define	ZPL_VERSION_2			2ULL
-#define	ZPL_VERSION			ZPL_VERSION_2
-#define	ZPL_VERSION_STRING		"2"
+#define	ZPL_VERSION_3			3ULL
+#define	ZPL_VERSION			ZPL_VERSION_3
+#define	ZPL_VERSION_STRING		"3"
 
 #define	ZPL_VERSION_INITIAL		ZPL_VERSION_1
 #define	ZPL_VERSION_DIRENT_TYPE		ZPL_VERSION_2
+#define	ZPL_VERSION_FUID		ZPL_VERSION_3
+#define	ZPL_VERSION_SYSATTR		ZPL_VERSION_3
 
 /*
  * The following are configuration names used in the nvlist describing a pool's
@@ -380,6 +408,7 @@ typedef enum pool_state {
 	POOL_STATE_DESTROYED,		/* Explicitly destroyed		*/
 	POOL_STATE_SPARE,		/* Reserved for hot spare use	*/
 	POOL_STATE_UNINITIALIZED,	/* Internal spa_t state		*/
+	POOL_STATE_IO_FAILURE,		/* Internal pool state		*/
 	POOL_STATE_UNAVAIL,		/* Internal libzfs state	*/
 	POOL_STATE_POTENTIALLY_ACTIVE	/* Internal libzfs state	*/
 } pool_state_t;
@@ -506,8 +535,8 @@ typedef enum zfs_ioc {
 	ZFS_IOC_DESTROY,
 	ZFS_IOC_ROLLBACK,
 	ZFS_IOC_RENAME,
-	ZFS_IOC_RECVBACKUP,
-	ZFS_IOC_SENDBACKUP,
+	ZFS_IOC_RECV,
+	ZFS_IOC_SEND,
 	ZFS_IOC_INJECT_FAULT,
 	ZFS_IOC_CLEAR_FAULT,
 	ZFS_IOC_INJECT_LIST_NEXT,
@@ -634,6 +663,8 @@ typedef enum history_internal_events {
 	LOG_DS_ROLLBACK,
 	LOG_DS_SNAPSHOT,
 	LOG_DS_UPGRADE,
+	LOG_DS_REFQUOTA,
+	LOG_DS_REFRESERV,
 	LOG_END
 } history_internal_events_t;
 

@@ -96,9 +96,9 @@
 #define	RDISK_ROOT	"/dev"
 #define	BACKUP_SLICE	"s0"
 #else
-#define DISK_ROOT       "/dev/dsk"
-#define RDISK_ROOT      "/dev/rdsk"
-#define BACKUP_SLICE    "s2"
+#define	DISK_ROOT       "/dev/dsk"
+#define	RDISK_ROOT      "/dev/rdsk"
+#define	BACKUP_SLICE    "s2"
 #endif
 
 /*
@@ -416,13 +416,15 @@ static nvlist_t *
 make_leaf_vdev(const char *arg, uint64_t is_log)
 {
 	char path[MAXPATHLEN];
-	struct stat statbuf;
+	struct stat64 statbuf;
 	nvlist_t *vdev = NULL;
 	char *type = NULL;
 	boolean_t wholedisk = B_FALSE;
 
+#ifdef __APPLE__
 	statbuf.st_mode = 0;
-	
+#endif /* __APPLE__*/
+
 	/*
 	 * Determine what type of vdev this is, and put the full path into
 	 * 'path'.  We detect whether this is a device of file afterwards by
@@ -434,7 +436,7 @@ make_leaf_vdev(const char *arg, uint64_t is_log)
 		 * examining the file descriptor afterwards.
 		 */
 		wholedisk = is_whole_disk(arg);
-		if (!wholedisk && (stat(arg, &statbuf) != 0)) {
+		if (!wholedisk && (stat64(arg, &statbuf) != 0)) {
 			(void) fprintf(stderr,
 			    gettext("cannot open '%s': %s\n"),
 			    arg, strerror(errno));
@@ -452,7 +454,7 @@ make_leaf_vdev(const char *arg, uint64_t is_log)
 		(void) snprintf(path, sizeof (path), "%s/%s", DISK_ROOT,
 		    arg);
 		wholedisk = is_whole_disk(path);
-		if (!wholedisk && (stat(path, &statbuf) != 0)) {
+		if (!wholedisk && (stat64(path, &statbuf) != 0)) {
 			/*
 			 * If we got ENOENT, then the user gave us
 			 * gibberish, so try to direct them with a
@@ -698,7 +700,7 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 				}
 
 				/*
-				 * According to stat(2), the value of 'st_size'
+				 * According to stat64(2), the value of 'st_size'
 				 * is undefined for block devices and character
 				 * devices.  But there is no effective way to
 				 * determine the real size in userland.
@@ -713,10 +715,10 @@ get_replication(nvlist_t *nvroot, boolean_t fatal)
 				 * this device altogether.
 				 */
 				if ((fd = open(path, O_RDONLY)) >= 0) {
-					err = fstat(fd, &statbuf);
+					err = fstat64(fd, &statbuf);
 					(void) close(fd);
 				} else {
-					err = stat(path, &statbuf);
+					err = stat64(path, &statbuf);
 				}
 
 				if (err != 0 ||

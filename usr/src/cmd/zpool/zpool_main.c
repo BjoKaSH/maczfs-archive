@@ -208,10 +208,11 @@ get_usage(zpool_help_t idx) {
 		return (gettext("\thistory [-il] [<pool>] ...\n"));
 	case HELP_IMPORT:
 		return (gettext("\timport [-d dir] [-D]\n"
-		    "\timport [-o mntopts] [-o property=value] ... [-d dir]\n"
-		    "\t    [-D] [-f] [-R root] -a\n"
-		    "\timport [-o mntopts] [-o property=value] ... [-d dir]\n"
-		    "\t    [-D] [-f] [-R root] <pool | id> [newpool]\n"));
+		    "\timport [-o mntopts] [-o property=value] ... \n"
+		    "\t    [-d dir | -c cachefile] [-D] [-f] [-R root] -a\n"
+		    "\timport [-o mntopts] [-o property=value] ... \n"
+		    "\t    [-d dir | -c cachefile] [-D] [-f] [-R root] "
+		    "<pool | id> [newpool]\n"));
 	case HELP_IOSTAT:
 		return (gettext("\tiostat [-v] [pool] ... [interval "
 		    "[count]]\n"));
@@ -385,7 +386,7 @@ add_prop_list(const char *propname, char *propval, nvlist_t **props)
 
 	/* Use normalized property name for nvlist operations */
 	if (nvlist_lookup_string(proplist, zpool_prop_to_name(prop),
-	    &strval) == 0) {
+	    &strval) == 0 && prop != ZPOOL_PROP_CACHEFILE) {
 		(void) fprintf(stderr, gettext("property '%s' "
 		    "specified multiple times\n"), propname);
 		return (2);
@@ -575,7 +576,7 @@ zpool_do_create(int argc, char **argv)
 	nvlist_t **child;
 	uint_t children;
 	nvlist_t *props = NULL;
-	char *propval = NULL;
+	char *propval;
 
 	/* check options */
 	while ((c = getopt(argc, argv, ":fnR:m:o:")) != -1) {
@@ -591,8 +592,12 @@ zpool_do_create(int argc, char **argv)
 			if (add_prop_list(zpool_prop_to_name(
 			    ZPOOL_PROP_ALTROOT), optarg, &props))
 				goto errout;
+			if (nvlist_lookup_string(props,
+			    zpool_prop_to_name(ZPOOL_PROP_CACHEFILE),
+			    &propval) == 0)
+				break;
 			if (add_prop_list(zpool_prop_to_name(
-			    ZPOOL_PROP_TEMPORARY), "on", &props))
+			    ZPOOL_PROP_CACHEFILE), "none", &props))
 				goto errout;
 			break;
 		case 'm':
@@ -679,7 +684,7 @@ zpool_do_create(int argc, char **argv)
 	    (strcmp(mountpoint, ZFS_MOUNTPOINT_LEGACY) != 0 &&
 	    strcmp(mountpoint, ZFS_MOUNTPOINT_NONE) != 0)) {
 		char buf[MAXPATHLEN];
-		struct stat statbuf;
+		struct stat64 statbuf;
 		if (mountpoint && mountpoint[0] != '/') {
 			(void) fprintf(stderr, gettext("invalid mountpoint "
 			    "'%s': must be an absolute path, 'legacy', or "
@@ -708,7 +713,7 @@ zpool_do_create(int argc, char **argv)
 				    mountpoint);
 		}
 
-		if (stat(buf, &statbuf) == 0 &&
+		if (stat64(buf, &statbuf) == 0 &&
 		    statbuf.st_nlink != 2) {
 			if (mountpoint == NULL)
 				(void) fprintf(stderr, gettext("default "
@@ -751,7 +756,7 @@ zpool_do_create(int argc, char **argv)
 					    ZFS_PROP_MOUNTPOINT),
 					    mountpoint) == 0);
 				if (zfs_mount(pool, NULL, 0) == 0)
-					ret = zfs_share_nfs(pool);
+					ret = zfs_shareall(pool);
 				zfs_close(pool);
 			}
 		} else if (libzfs_errno(g_zfs) == EZFS_INVALIDNAME) {
@@ -761,10 +766,8 @@ zpool_do_create(int argc, char **argv)
 	}
 
 errout:
-	if (nvroot)
-		nvlist_free(nvroot);
-	if (props)
-		nvlist_free(props);
+	nvlist_free(nvroot);
+	nvlist_free(props);
 	return (ret);
 badusage:
 	nvlist_free(props);
@@ -1277,9 +1280,13 @@ do_import(nvlist_t *config, const char *newname, const char *mntopts,
 
 /*
  * zpool import [-d dir] [-D]
- *       import [-o mntopts] [-o prop=value] ... [-R root] [-D] [-d dir] [-f] -a
- *       import [-o mntopts] [-o prop=value] ... [-R root] [-D] [-d dir] [-f]
- *		<pool | id> [newpool]
+ *       import [-o mntopts] [-o prop=value] ... [-R root] [-D]
+ *              [-d dir | -c cachefile] [-f] -a
+ *       import [-o mntopts] [-o prop=value] ... [-R root] [-D]
+ *              [-d dir | -c cachefile] [-f] <pool | id> [newpool]
+ *
+ *	 -c	Read pool information from a cachefile instead of searching
+ *		devices.
  *
  *       -d	Scan in a specific directory, other than /dev/dsk.  More than
  *		one directory can be specified using multiple '-d' options.
@@ -1321,12 +1328,16 @@ zpool_do_import(int argc, char **argv)
 	nvlist_t *props = NULL;
 	boolean_t first;
 	uint64_t pool_state;
+	char *cachefile = NULL;
 
 	/* check options */
-	while ((c = getopt(argc, argv, ":Dfd:R:ao:p:")) != -1) {
+	while ((c = getopt(argc, argv, ":afc:d:Do:p:R:")) != -1) {
 		switch (c) {
 		case 'a':
 			do_all = B_TRUE;
+			break;
+		case 'c':
+			cachefile = optarg;
 			break;
 		case 'd':
 			if (searchdirs == NULL) {
@@ -1361,8 +1372,12 @@ zpool_do_import(int argc, char **argv)
 			if (add_prop_list(zpool_prop_to_name(
 			    ZPOOL_PROP_ALTROOT), optarg, &props))
 				goto error;
+			if (nvlist_lookup_string(props,
+			    zpool_prop_to_name(ZPOOL_PROP_CACHEFILE),
+			    &propval) == 0)
+				break;
 			if (add_prop_list(zpool_prop_to_name(
-			    ZPOOL_PROP_TEMPORARY), "on", &props))
+			    ZPOOL_PROP_CACHEFILE), "none", &props))
 				goto error;
 			break;
 		case ':':
@@ -1379,6 +1394,11 @@ zpool_do_import(int argc, char **argv)
 
 	argc -= optind;
 	argv += optind;
+
+	if (cachefile && nsearch != 0) {
+		(void) fprintf(stderr, gettext("-c is incompatible with -d\n"));
+		usage(B_FALSE);
+	}
 
 	if (searchdirs == NULL) {
 		searchdirs = safe_malloc(sizeof (char *));
@@ -1416,7 +1436,12 @@ zpool_do_import(int argc, char **argv)
 #endif
 	}
 
-	if ((pools = zpool_find_import(g_zfs, nsearch, searchdirs)) == NULL) {
+	if (cachefile)
+		pools = zpool_find_import_cached(g_zfs, cachefile);
+	else
+		pools = zpool_find_import(g_zfs, nsearch, searchdirs);
+
+	if (pools == NULL) {
 		free(searchdirs);
 		return (1);
 	}
@@ -1530,10 +1555,8 @@ zpool_do_import(int argc, char **argv)
 		    gettext("no pools available to import\n"));
 
 error:
-	if (props)
-		nvlist_free(props);
-	if (pools)
-		nvlist_free(pools);
+	nvlist_free(props);
+	nvlist_free(pools);
 	free(searchdirs);
 
 	return (err ? 1 : 0);
@@ -3237,7 +3260,6 @@ zpool_do_upgrade(int argc, char **argv)
 	boolean_t showversions = B_FALSE;
 	char *end;
 
-	cb.cb_version = SPA_VERSION;
 
 	/* check options */
 	while ((c = getopt(argc, argv, "avV:")) != -1) {
@@ -3250,7 +3272,8 @@ zpool_do_upgrade(int argc, char **argv)
 			break;
 		case 'V':
 			cb.cb_version = strtoll(optarg, &end, 10);
-			if (*end != '\0') {
+			if (*end != '\0' || cb.cb_version > SPA_VERSION ||
+			    cb.cb_version < SPA_VERSION_1) {
 				(void) fprintf(stderr,
 				    gettext("invalid version '%s'\n"), optarg);
 				usage(B_FALSE);
@@ -3268,6 +3291,14 @@ zpool_do_upgrade(int argc, char **argv)
 	argc -= optind;
 	argv += optind;
 
+	if (cb.cb_version == 0) {
+		cb.cb_version = SPA_VERSION;
+	} else if (!cb.cb_all && argc == 0) {
+		(void) fprintf(stderr, gettext("-V option is "
+		    "incompatible with other arguments\n"));
+		usage(B_FALSE);
+	}
+
 	if (showversions) {
 		if (cb.cb_all || argc != 0) {
 			(void) fprintf(stderr, gettext("-v option is "
@@ -3276,8 +3307,8 @@ zpool_do_upgrade(int argc, char **argv)
 		}
 	} else if (cb.cb_all) {
 		if (argc != 0) {
-			(void) fprintf(stderr, gettext("-a option is "
-			    "incompatible with other arguments\n"));
+			(void) fprintf(stderr, gettext("-a option should not "
+			    "be used along with a pool name\n"));
 			usage(B_FALSE);
 		}
 	}
@@ -3302,6 +3333,8 @@ zpool_do_upgrade(int argc, char **argv)
 		(void) printf(gettext(" 6   bootfs pool property\n"));
 		(void) printf(gettext(" 7   Separate intent log devices\n"));
 		(void) printf(gettext(" 8   Delegated administration\n"));
+		(void) printf(gettext(" 9  refquota and refreservation "
+		    "properties\n"));
 		(void) printf(gettext("For more information on a particular "
 		    "version, including supported releases, see:\n\n"));
 		(void) printf("http://www.opensolaris.org/os/community/zfs/"
@@ -3384,6 +3417,8 @@ char *hist_event_table[LOG_END] = {
 	"rollback",
 	"snapshot",
 	"filesystem version upgrade",
+	"refquota set",
+	"refreservation set",
 };
 
 /*

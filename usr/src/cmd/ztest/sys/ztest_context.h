@@ -23,6 +23,8 @@
  * Use is subject to license terms.
  */
 
+#ifdef ZTEST
+
 #ifndef _SYS_ZFS_CONTEXT_H
 #define	_SYS_ZFS_CONTEXT_H
 
@@ -358,3 +360,5 @@ typedef struct callb_cpr {
 #endif
 
 #endif	/* _SYS_ZFS_CONTEXT_H */
+
+#endif /* ZTEST */

@@ -295,8 +295,6 @@ extern void arc_get_stats(zfs_memory_stats_t *stats);
 
 #define	INGLOBALZONE(p)   (1)
 
-#define dnlc_reduce_cache(per)
-
 /* Mac OS X Proc Status values. */
 #define	SIDL	1		/* Process being created by fork. */
 #define	SRUN	2		/* Currently runnable. */
@@ -323,11 +321,6 @@ extern void arc_get_stats(zfs_memory_stats_t *stats);
 
 #define kcred	(cred_t *)NOCRED
 
-#ifndef _KERNEL
-typedef int  cred_t;
-#endif
-
-
 /* Buffer flags not used in Mac OS X */
 #define B_FAILFAST  0
 
@@ -345,7 +338,11 @@ enum rm         { RMFILE, RMDIRECTORY };        /* rm or rmdir (remove) */
 //enum vcexcl     { NONEXCL, EXCL };              /* (non)excl create */
 enum create     { CRCREAT, CRMKNOD, CRMKDIR };  /* reason for create */
 
-typedef struct vnode_attr  vattr_t;
+#ifndef _KERNELx
+	struct vnode_attr;
+#endif
+
+typedef struct vnode_attr vattr_t;
 
 #define va_mask		va_active
 #define va_nodeid   va_fileid
@@ -370,27 +367,6 @@ typedef struct vnode_attr  vattr_t;
 #define va_ctime	va_change_time
 
 typedef u_longlong_t	rlim64_t;
-
-
-/*
- * Structure used on Open Solaris VOP_GETSECATTR and VOP_SETSECATTR operations
- */
-
-typedef struct vsecattr {
-	uint_t		vsa_mask;	/* See below */
-	int		vsa_aclcnt;	/* ACL entry count */
-	void		*vsa_aclentp;	/* pointer to ACL entries */
-	int		vsa_dfaclcnt;	/* default ACL entry count */
-	void		*vsa_dfaclentp;	/* pointer to default ACL entries */
-} vsecattr_t;
-
-/* vsa_mask values */
-#define	VSA_ACL		0x0001
-#define	VSA_ACLCNT	0x0002
-#define	VSA_DFACL	0x0004
-#define	VSA_DFACLCNT	0x0008
-#define	VSA_ACE		0x0010
-#define	VSA_ACECNT	0x0020
 
 #define	RLIM64_INFINITY		((rlim64_t)-3)
 #define	RLIM64_SAVED_MAX	((rlim64_t)-2)
@@ -568,7 +544,7 @@ extern int	vn_open(char *pnamep, enum uio_seg seg, int filemode, int createmode,
 
 extern int	vn_openat(char *pnamep, enum uio_seg seg, int filemode, int createmode,
 		struct vnode **vpp, enum create crwhy,
-		mode_t umask, struct vnode *startvp);
+		mode_t umask, struct vnode *startvp, int fd);
 
 extern int	vn_rename(char *from, char *to, enum uio_seg seg);
 
@@ -581,9 +557,10 @@ extern int	vn_remove(char *fnamep, enum uio_seg seg, enum rm dirflag);
 #define vn_has_cached_data(VP)	(VTOZ(VP)->z_mmapped || vnode_isswap(VP))
 #endif
 
-extern int VOP_CLOSE(struct vnode *, int, int, offset_t, void *);
+// Defined in zfs_context.c
+extern int VOP_CLOSE(struct vnode *vp, int cmd, int count, offset_t offset, void *cred, void *ctx);
 
-extern int VOP_FSYNC(struct vnode*, int, void *);
+extern int VOP_FSYNC(struct vnode *vp, int flags, void *cred, void *ctx);
 
 
 typedef struct dirent dirent_t;
@@ -695,9 +672,6 @@ extern char * strpbrk(const char *, const char *);
 extern void adjust_ace_pair(ace_t *pair, mode_t mode);
 extern int ace_trivial(ace_t *acep, int aclcnt);
 
-extern gid_t crgetgid(const cred_t *);
-
-
 extern struct kmem_cache * znode_cache_get(void);
 extern struct kmem_cache * dnode_cache_get(void);
 extern struct kmem_cache * dbuf_cache_get(void);
@@ -723,15 +697,43 @@ extern int zfs_dprintf_enabled;
 
 extern void dprint_stack_internal(char func_name[], char file_name[], int line);
 #define dprint_stack dprint_stack_internal(__func__, __FILE__, __LINE__)
-
+	
 #include <sys/stat.h>	
 #ifdef _DARWIN_FEATURE_64_BIT_INODE
 #define stat64 stat
 #define fstat64 fstat
 #define lstat64 lstat
 #endif
+
 	
+// UNSUPPORTED FEATURES
+//
+// OpenSolaris has various concepts which don't translate into
+// OSX, and as such, instead of ifdef'ing them each time they
+// crop up, we simply remove them from existence here.
+// That way, if any code refers to them, we don't need to
+// selectively update them.
+
+// Since the vfs_set_feature doesn't exist in OSX, and it's
+// used to set information regarding features not supported
+// (e.g. XVATTR support, case sensitivity) we just ifdef it
+// out of existence to save multiple ifdefs elsewhere in the
+// codebase
+#define vfs_set_feature(fs, flags)	
+
+// All DNLC code is handled in the upstream VFS layer in OSX
+#define dnlc_update(v,n,f)
+#define dnlc_remove(v,n)
+#define dnlc_reduce_cache(per)
+#define dnlc_purge_vfsp(z,f) (0)
+
+// Used for releasing a file descriptor
+#define releasef(fd)
 	
+// Path handling operations, in pathname.c, shouldn't be used
+#define pn_alloc(x) do { ASSERT(0); } while(0);
+#define pn_free(x) do { ASSERT(0); } while(0);
+
 #else  /* __APPLE__ */
 #include <sys/note.h>
 #include <sys/types.h>
@@ -763,6 +765,7 @@ extern void dprint_stack_internal(char func_name[], char file_name[], int line);
 #include <sys/zfs_debug.h>
 #include <sys/sysevent.h>
 #include <sys/sysevent/eventdefs.h>
+#include <sys/fm/util.h>
 
 #define	CPU_SEQID	(CPU->cpu_seqid)
 #endif /* __APPLE__ */

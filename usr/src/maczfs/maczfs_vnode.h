@@ -159,8 +159,11 @@ typedef struct vopstats {
  *	v_mmap_read, v_mmap_write
  */
 
-#ifndef __APPLE__
-
+#ifdef __APPLE__
+// enum vtype is defined in /System/.../vnode.h
+typedef enum vtype vtype_t;
+	
+#else
 /*
  * vnode types.  VNON means no type.  These values are unrelated to
  * values in on-disk inodes.
@@ -389,6 +392,8 @@ typedef struct vattr {
 	uint_t		va_seq;		/* sequence number */
 } vattr_t;
 
+#endif /* !__APPLE__ */
+
 #define	AV_SCANSTAMP_SZ	32		/* length of anti-virus scanstamp */
 
 /*
@@ -410,7 +415,7 @@ typedef struct xoptattr {
 	uint8_t		xoa_av_scanstamp[AV_SCANSTAMP_SZ];
 	uint8_t		xoa_reparse;
 } xoptattr_t;
-#endif /* !__APPLE__ */
+
 /*
  * The xvattr structure is really a variable length structure that
  * is made up of:
@@ -436,6 +441,68 @@ typedef struct xoptattr {
 
 #define	XVA_MAPSIZE	3		/* Size of attr bitmaps */
 #define	XVA_MAGIC	0x78766174	/* Magic # for verification */
+
+#ifdef __APPLE__
+#ifndef _KERNEL
+// Copied from /System/Library/Frameworks/Kernel.framework/Headers/sys/vnode.h
+	struct vnode_attr {
+        /* bitfields */
+        uint64_t        va_supported;
+        uint64_t        va_active;
+		
+        /*
+         * Control flags.  The low 16 bits are reserved for the
+         * ioflags being passed for truncation operations.
+         */
+        int             va_vaflags;
+		
+        /* traditional stat(2) parameter fields */
+        dev_t           va_rdev;        /* device id (device nodes only) */
+        uint64_t        va_nlink;       /* number of references to this file */
+        uint64_t        va_total_size;  /* size in bytes of all forks */
+        uint64_t        va_total_alloc; /* disk space used by all forks */
+        uint64_t        va_data_size;   /* size in bytes of the fork managed by current vnode */
+        uint64_t        va_data_alloc;  /* disk space used by the fork managed by current vnode */
+        uint32_t        va_iosize;      /* optimal I/O blocksize */
+		
+        /* file security information */
+        uid_t           va_uid;         /* owner UID */
+        gid_t           va_gid;         /* owner GID */
+        mode_t          va_mode;        /* posix permissions */
+        uint32_t        va_flags;       /* file flags */
+        struct kauth_acl *va_acl;       /* access control list */
+		
+        /* timestamps */
+        struct timespec va_create_time; /* time of creation */
+        struct timespec va_access_time; /* time of last access */
+        struct timespec va_modify_time; /* time of last data modification */
+        struct timespec va_change_time; /* time of last metadata change */
+        struct timespec va_backup_time; /* time of last backup */
+		
+        /* file parameters */
+        uint64_t        va_fileid;      /* file unique ID in filesystem */
+        uint64_t        va_linkid;      /* file link unique ID */
+        uint64_t        va_parentid;    /* parent ID */
+        uint32_t        va_fsid;        /* filesystem ID */
+        uint64_t        va_filerev;     /* file revision counter */     /* XXX */
+        uint32_t        va_gen;         /* file generation count */     /* XXX - relationship of
+																		 * these two? */
+        /* misc parameters */
+        uint32_t        va_encoding;    /* filename encoding script */
+		
+        enum vtype      va_type;        /* file type (create only) */
+        char *          va_name;        /* Name for ATTR_CMN_NAME; MAXPATHLEN bytes */
+        guid_t          va_uuuid;       /* file owner UUID */
+        guid_t          va_guuid;       /* file group UUID */
+		
+        /* Meaningful for directories only */
+        uint64_t        va_nchildren;     /* Number of items in a directory */
+        uint64_t        va_dirlinkcount;  /* Real references to dir (i.e. excluding "." and ".." refs) */
+		
+        /* add new fields here only */		
+	};	
+#endif /* !_KERNEL */
+#endif /* __APPLE__ */
 
 /*
  * The xvattr structure is an extensible structure which permits optional
@@ -675,12 +742,16 @@ typedef vattr_t		vattr32_t;
  * XVA_ISSET_REQ() checks the requested attribute bitmap (xva_reqattrmap[])
  * to see of the corresponding attribute bit is set.  If so, returns non-zero.
  */
+#ifdef __APPLE__
+#define	XVA_ISSET_REQ(xvap, attr)	(0)
+#else
 #define	XVA_ISSET_REQ(xvap, attr)					\
 	((((xvap)->xva_vattr.va_mask | AT_XVATTR) &&			\
 		((xvap)->xva_magic == XVA_MAGIC) &&			\
 		((xvap)->xva_mapsize > XVA_INDEX(attr))) ?		\
 	((xvap)->xva_reqattrmap[XVA_INDEX(attr)] & XVA_ATTRBIT(attr)) :	0)
-
+#endif
+	
 /*
  * XVA_ISSET_RTN() checks the returned attribute bitmap (xva_rtnattrmap[])
  * to see of the corresponding attribute bit is set.  If so, returns non-zero.
@@ -691,7 +762,6 @@ typedef vattr_t		vattr32_t;
 		((xvap)->xva_mapsize > XVA_INDEX(attr))) ?		\
 	((XVA_RTNATTRMAP(xvap))[XVA_INDEX(attr)] & XVA_ATTRBIT(attr)) : 0)
 
-#ifndef __APPLE__
 /*
  *  Modes.  Some values same as S_xxx entries from stat.h for convenience.
  */
@@ -714,6 +784,8 @@ typedef vattr_t		vattr32_t;
  */
 #define	V_ACE_MASK	0x1	/* mask represents  NFSv4 ACE permissions */
 #define	V_APPEND	0x2	/* want to do append only check */
+
+#ifndef __APPLE__
 
 /*
  * Check whether mandatory file locking is enabled.
@@ -758,6 +830,8 @@ typedef enum v_mode v_mode_t;
 #define	V_TRUE	1
 #define	V_FALSE	0
 
+#endif /* !__APPLE__ */
+
 /*
  * Structure used on VOP_GETSECATTR and VOP_SETSECATTR operations
  */
@@ -781,8 +855,6 @@ typedef struct vsecattr {
 #define	VSA_ACECNT		0x0020
 #define	VSA_ACE_ALLTYPES	0x0040
 #define	VSA_ACE_ACLFLAGS	0x0080	/* get/set ACE ACL flags */
-	
-#endif /* !__APPLE__ */
 
 /*
  * Structure used by various vnode operations to determine
@@ -799,8 +871,64 @@ typedef struct caller_context {
 	int		cc_sysid;	/* System ID, used for remote calls */
 	u_longlong_t	cc_caller_id;	/* Identifier for (set of) caller(s) */
 	ulong_t		cc_flags;
+#ifdef __APPLE__
+#ifdef _KERNEL
+	struct componentname *componentname;
+	union {
+		struct vnop_access_args *vnop_access_args;
+		struct vnop_allocate_args *vnop_allocate_args;
+		struct vnop_blktooff_args *vnop_blktooff_args;
+		struct vnop_blockmap_args *vnop_blockmap_args;
+		struct vnop_close_args *vnop_close_args;
+		struct vnop_create_args *vnop_create_args;
+		struct vnop_exchange_args *vnop_exchange_args;
+		struct vnop_fsync_args *vnop_fsync_args;
+		struct vnop_getattr_args *vnop_getattr_args;
+		struct vnop_getnamedstream_args **vnop_getnamedstream_args;
+		struct vnop_getxattr_args *vnop_getxattr_args;
+		struct vnop_inactive_args *vnop_inactive_args;
+		struct vnop_ioctl_args *vnop_ioctl_args;
+		struct vnop_link_args *vnop_link_args;
+		struct vnop_listxattr_args *vnop_listxattr_args;
+		struct vnop_lookup_args *vnop_lookup_args;
+		struct vnop_makenamedstream_args **vnop_makenamedstream_args;
+		struct vnop_mkdir_args *vnop_mkdir_args;
+		struct vnop_mknod_args *vnop_mknod_args;
+		struct vnop_mmap_args *vnop_mmap_args;
+		struct vnop_offtoblk_args *vnop_offtoblk_args;
+		struct vnop_open_args *vnop_open_args;
+		struct vnop_pagein_args *vnop_pagein_args;
+		struct vnop_pageout_args *vnop_pageout_args;
+		struct vnop_pathconf_args *vnop_pathconf_args;
+		struct vnop_read_args *vnop_read_args;
+		struct vnop_readdir_args *vnop_readdir_args;
+		struct vnop_readlink_args *vnop_readlink_args;
+		struct vnop_reclaim_args *vnop_reclaim_args;
+		struct vnop_remove_args *vnop_remove_args;
+		struct vnop_removenamedstream_args **vnop_removenamedstream_args;
+		struct vnop_removexattr_args *vnop_removexattr_args;
+		struct vnop_rename_args *vnop_rename_args;
+		struct vnop_revoke_args *vnop_revoke_args;
+		struct vnop_rmdir_args *vnop_rmdir_args;
+		struct vnop_select_args *vnop_select_args;
+		struct vnop_setattr_args *vnop_setattr_args;
+		struct vnop_setxattr_args *vnop_setxattr_args;
+		struct vnop_strategy_args *vnop_strategy_args;
+		struct vnop_symlink_args *vnop_symlink_args;
+		struct vnop_whiteout_args *vnop_whiteout_args;
+		struct vnop_write_args *vnop_write_args;
+	} vnop_args;
+#endif /* _KERNEL */
+#endif /* __APPLE__ */
 } caller_context_t;
 
+#define MACZFS_CALLER_CONTEXT \
+	caller_context_t cctx; \
+	cctx.cc_pid = 0; \
+	cctx.cc_caller_id = 0; \
+	cctx.cc_flags = 0; \
+	cctx.cc_sysid = 0;
+	
 /*
  * Flags for caller context.  The caller sets CC_DONTBLOCK if it does not
  * want to block inside of a FEM monitor.  The monitor will set CC_WOULDBLOCK
@@ -1318,7 +1446,7 @@ void vsd_free(vnode_t *);
 /*
  * Extensible vnode attribute (xva) routines:
  * xva_init() initializes an xvattr_t (zero struct, init mapsize, set AT_XATTR)
- * xva_getxoptattr() returns a ponter to the xoptattr_t section of xvattr_t
+ * xva_getxoptattr() returns a pointer to the xoptattr_t section of xvattr_t
  */
 void		xva_init(xvattr_t *);
 xoptattr_t	*xva_getxoptattr(xvattr_t *);	/* Get ptr to xoptattr_t */
@@ -1388,6 +1516,8 @@ typedef enum {
 
 #endif	/* _KERNEL */
 
+#endif /* !__APPLE__ */
+
 /*
  * Flags to VOP_SETATTR/VOP_GETATTR.
  */
@@ -1407,6 +1537,8 @@ typedef enum {
 
 #define	NULLVP		((struct vnode *)0)
 #define	NULLVPP		((struct vnode **)0)
+
+#ifdef __APPLE__
 
 #ifdef	_KERNEL
 
@@ -1442,6 +1574,12 @@ struct async_reqs {
 
 #endif /* !__APPLE__ */
 	
+#ifdef __APPLE__
+#ifdef _KERNEL
+#define xva_init(t) VATTR_INIT(t.xva_vattr)
+#define xva_getxoptattr(t) NULL
+#endif /* _KERNEL */
+#endif /* __APPLE__ */	
 #ifdef	__cplusplus
 }
 #endif

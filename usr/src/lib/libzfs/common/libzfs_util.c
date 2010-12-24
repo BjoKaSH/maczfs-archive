@@ -144,6 +144,10 @@ libzfs_error_description(libzfs_handle_t *hdl)
 		return (dgettext(TEXT_DOMAIN, "unshare(1M) failed"));
 	case EZFS_SHARENFSFAILED:
 		return (dgettext(TEXT_DOMAIN, "share(1M) failed"));
+	case EZFS_UNSHARESMBFAILED:
+		return (dgettext(TEXT_DOMAIN, "smb remove share failed"));
+	case EZFS_SHARESMBFAILED:
+		return (dgettext(TEXT_DOMAIN, "smb add share failed"));
 	case EZFS_ISCSISVCUNAVAIL:
 		return (dgettext(TEXT_DOMAIN,
 		    "iscsitgt service need to be enabled by "
@@ -203,6 +207,8 @@ libzfs_error_description(libzfs_handle_t *hdl)
 	case EZFS_PERMRDONLY:
 		return (dgettext(TEXT_DOMAIN, "snapshot permissions cannot be"
 		    " modified"));
+	case EZFS_BADCACHE:
+		return (dgettext(TEXT_DOMAIN, "invalid or missing cache file"));
 	case EZFS_UNKNOWN:
 		return (dgettext(TEXT_DOMAIN, "unknown error"));
 	default:
@@ -885,7 +891,6 @@ zfs_ioctl(libzfs_handle_t *hdl, int request, zfs_cmd_t *zc)
 	int error;
 
 	zc->zc_history = (uint64_t)(uintptr_t)hdl->libzfs_log_str;
-	zc->zc_history = (uint64_t)(uintptr_t)hdl->libzfs_log_str;
 #ifdef __APPLE__
 	error = app_ioctl(hdl->libzfs_fd, request, zc);
 #else
@@ -1300,10 +1305,10 @@ zprop_parse_value(libzfs_handle_t *hdl, nvpair_t *elem, int prop,
 		/*
 		 * Quota special: force 'none' and don't allow 0.
 		 */
-		if ((type & ZFS_TYPE_DATASET) && *ivalp == 0 &&
-		    !isnone && prop == ZFS_PROP_QUOTA) {
+		if ((type & ZFS_TYPE_DATASET) && *ivalp == 0 && !isnone &&
+		    (prop == ZFS_PROP_QUOTA || prop == ZFS_PROP_REFQUOTA)) {
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-			    "use 'none' to disable quota"));
+			    "use 'none' to disable quota/refquota"));
 			goto error;
 		}
 		break;

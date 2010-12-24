@@ -21,7 +21,9 @@
 /*
  * Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Portions Copyright 2007 Apple Inc. All rights reserved.
+ * Portions Copyright 2009 Apple Inc. All rights reserved.
+ * Use is subject to license terms.
+ * Portions Copyright 2010 Alex Blewitt. All rights reserved.
  * Use is subject to license terms.
  */
 
@@ -42,6 +44,8 @@
 #include <sys/cmn_err.h>
 #include <sys/stat.h>
 #include <sys/zfs_ioctl.h>
+#include <sys/zfs_i18n.h>
+#include <sys/zfs_znode.h>
 #include <sys/zap.h>
 #include <sys/spa.h>
 #include <sys/spa_impl.h>
@@ -68,6 +72,7 @@
 #endif /* !__APPLE__ */
 #include <sys/fs/zfs.h>
 #include <sys/zfs_ctldir.h>
+#include <sys/zfs_dir.h>
 #include <sys/zvol.h>
 #ifdef __APPLE__
 #include <miscfs/devfs/devfs.h>
@@ -75,6 +80,8 @@
 #include <sharefs/share.h>
 #endif /* __APPLE__ */
 #include <sys/zfs_znode.h>
+#include <sys/zfs_vfsops.h>
+#include <sys/dmu_objset.h>
 
 #include "zfs_namecheck.h"
 #include "zfs_prop.h"
@@ -175,6 +182,27 @@ history_str_get(zfs_cmd_t *zc)
 	return (buf);
 }
 
+/*
+ * zfs_check_version
+ *
+ *	Return non-zero if the spa version is less than requested version.
+ */
+static int
+zfs_check_version(const char *name, int version)
+{
+
+	spa_t *spa;
+
+	if (spa_open(name, &spa, FTAG) == 0) {
+		if (spa_version(spa) < version) {
+			spa_close(spa, FTAG);
+			return (1);
+		}
+		spa_close(spa, FTAG);
+	}
+	return (0);
+}
+
 static void
 zfs_log_history(zfs_cmd_t *zc)
 {
@@ -213,7 +241,7 @@ zfs_secpolicy_read(zfs_cmd_t *zc, cred_t *cr)
 {
 #ifndef __APPLE__
 	if (INGLOBALZONE(curproc) ||
-	    zone_dataset_visible(dataset, NULL))
+	    zone_dataset_visible(zc->zc_name, NULL))
 		return (0);
 
 	return (ENOENT);
@@ -354,7 +382,7 @@ zfs_secpolicy_share(zfs_cmd_t *zc, cred_t *cr)
 	if (!INGLOBALZONE(curproc))
 		return (EPERM);
 
-	if (secpolicy_nfs(CRED()) == 0) {
+	if (secpolicy_nfs(cr) == 0) {
 		return (0);
 	} else {
 		vnode_t *vp;
@@ -488,7 +516,7 @@ zfs_secpolicy_promote(zfs_cmd_t *zc, cred_t *cr)
 
 		rw_enter(&dd->dd_pool->dp_config_rwlock, RW_READER);
 		error = dsl_dataset_open_obj(dd->dd_pool,
-		    dd->dd_phys->dd_clone_parent_obj, NULL,
+		    dd->dd_phys->dd_origin_obj, NULL,
 		    DS_MODE_NONE, FTAG, &pclone);
 		rw_exit(&dd->dd_pool->dp_config_rwlock);
 		if (error) {
@@ -1122,6 +1150,17 @@ zfs_ioc_vdev_setpath(zfs_cmd_t *zc)
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_name		name of filesystem
+ * zc_nvlist_dst_size	size of buffer for property nvlist
+ *
+ * outputs:
+ * zc_objset_stats	stats
+ * zc_nvlist_dst	property nvlist
+ * zc_nvlist_dst_size	size of property nvlist
+ * zc_value		alternate root
+ */
 static int
 zfs_ioc_objset_stats(zfs_cmd_t *zc)
 {
@@ -1172,6 +1211,19 @@ retry:
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_name		name of filesystem
+ * zc_cookie		zap cursor
+ * zc_nvlist_dst_size	size of buffer for property nvlist
+ *
+ * outputs:
+ * zc_name		name of next filesystem
+ * zc_objset_stats	stats
+ * zc_nvlist_dst	property nvlist
+ * zc_nvlist_dst_size	size of property nvlist
+ * zc_value		alternate root
+ */
 static int
 zfs_ioc_objset_version(zfs_cmd_t *zc)
 {
@@ -1265,6 +1317,19 @@ retry:
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_name		name of filesystem
+ * zc_cookie		zap cursor
+ * zc_nvlist_dst_size	size of buffer for property nvlist
+ *
+ * outputs:
+ * zc_name		name of next snapshot
+ * zc_objset_stats	stats
+ * zc_nvlist_dst	property nvlist
+ * zc_nvlist_dst_size	size of property nvlist
+ * zc_value		alternate root
+ */
 static int
 zfs_ioc_snapshot_list_next(zfs_cmd_t *zc)
 {
@@ -1309,17 +1374,16 @@ retry:
 	if (error == 0)
 		error = zfs_ioc_objset_stats(zc); /* fill in the stats */
 
+	/* if we failed, undo the @ that we tacked on to zc_name */
+	if (error != 0)
+		*strchr(zc->zc_name, '@') = '\0';
+
 	dmu_objset_close(os);
 	return (error);
 }
 
 static int
-// In the 10a286 bits, the 'dev' parameter wasn't used/needed
-#ifdef __APPLE__
-zfs_set_prop_nvlist(const char *name, dev_t dev, nvlist_t *nvl)
-#else
 zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
-#endif
 {
 	nvpair_t *elem;
 	int error;
@@ -1343,9 +1407,8 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 			    nvpair_type(elem) != DATA_TYPE_STRING)
 				return (EINVAL);
 
-			error = zfs_secpolicy_write_perms(name,
-			    ZFS_DELEG_PERM_USERPROP, CRED());
-			if (error)
+			if (error = zfs_secpolicy_write_perms(name,
+			    ZFS_DELEG_PERM_USERPROP, CRED()))
 				return (error);
 			continue;
 		}
@@ -1367,35 +1430,25 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 			    nvpair_value_uint64(elem, &intval) == 0 &&
 			    intval >= ZIO_COMPRESS_GZIP_1 &&
 			    intval <= ZIO_COMPRESS_GZIP_9) {
-				spa_t *spa;
-
-				if (spa_open(name, &spa, FTAG) == 0) {
-					if (spa_version(spa) <
-					    SPA_VERSION_GZIP_COMPRESSION) {
-						spa_close(spa, FTAG);
-						return (ENOTSUP);
-					}
-
-					spa_close(spa, FTAG);
-				}
+				if (zfs_check_version(name,
+				    SPA_VERSION_GZIP_COMPRESSION))
+					return (ENOTSUP);
 			}
 			break;
 
 		case ZFS_PROP_COPIES:
-		{
-			spa_t *spa;
-
-			if (spa_open(name, &spa, FTAG) == 0) {
-				if (spa_version(spa) <
-				    SPA_VERSION_DITTO_BLOCKS) {
-					spa_close(spa, FTAG);
-					return (ENOTSUP);
-				}
-				spa_close(spa, FTAG);
-			}
+			if (zfs_check_version(name, SPA_VERSION_DITTO_BLOCKS))
+				return (ENOTSUP);
 			break;
+		case ZFS_PROP_NORMALIZE:
+		case ZFS_PROP_UTF8ONLY:
+		case ZFS_PROP_CASE:
+			if (zfs_check_version(name, SPA_VERSION_NORMALIZATION))
+				return (ENOTSUP);
+
 		}
-		}
+		if ((error = zfs_secpolicy_setprop(name, prop, CRED())) != 0)
+			return (error);
 	}
 
 	elem = NULL;
@@ -1420,6 +1473,12 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 				return (error);
 			break;
 
+		case ZFS_PROP_REFQUOTA:
+			if ((error = nvpair_value_uint64(elem, &intval)) != 0 ||
+			    (error = dsl_dataset_set_quota(name, intval)) != 0)
+				return (error);
+			break;
+
 		case ZFS_PROP_RESERVATION:
 			if ((error = nvpair_value_uint64(elem, &intval)) != 0 ||
 			    (error = dsl_dir_set_reservation(name,
@@ -1427,17 +1486,17 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 				return (error);
 			break;
 
-// In the 10a286 bits, VOLSIZE and VOLBLOCKSIZE were ifndef'd out
-// As a result, the signature didn't need 'dev' any more
-		case ZFS_PROP_VOLSIZE:
+		case ZFS_PROP_REFRESERVATION:
 			if ((error = nvpair_value_uint64(elem, &intval)) != 0 ||
-#ifdef __APPLE__
-			    (error = zvol_set_volsize(name, dev,
-			     intval)) != 0
-#else
+			    (error = dsl_dataset_set_reservation(name,
+			    intval)) != 0)
+				return (error);
+			break;
+
+#ifndef __APPLE__
+		case ZFS_PROP_VOLSIZE:
 			    (error = zvol_set_volsize(name,
 			    ddi_driver_major(zfs_dip), intval)) != 0
-#endif
 			)
 				return (error);
 			break;
@@ -1447,6 +1506,7 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 			    (error = zvol_set_volblocksize(name, intval)) != 0)
 				return (error);
 			break;
+#endif
 
 		case ZFS_PROP_VERSION:
 			if ((error = nvpair_value_uint64(elem, &intval)) != 0 ||
@@ -1498,6 +1558,14 @@ zfs_set_prop_nvlist(const char *name, nvlist_t *nvl)
 	return (0);
 }
 
+/*
+ * inputs:
+ * zc_name		name of filesystem
+ * zc_value		name of property to inherit
+ * zc_nvlist_src{_size}	nvlist of properties to apply
+ *
+ * outputs:		none
+ */
 static int
 zfs_ioc_set_prop(zfs_cmd_t *zc)
 {
@@ -1508,13 +1576,19 @@ zfs_ioc_set_prop(zfs_cmd_t *zc)
 	    &nvl)) != 0)
 		return (error);
 
-// In the 10a286 bits, the 'zc->zc_dev' wasn't needed
-	error = zfs_set_prop_nvlist(zc->zc_name, zc->zc_dev, nvl);
+	error = zfs_set_prop_nvlist(zc->zc_name, nvl);
 
 	nvlist_free(nvl);
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_name		name of filesystem
+ * zc_value		name of property to inherit
+ *
+ * outputs:		none
+ */
 static int
 zfs_ioc_inherit_prop(zfs_cmd_t *zc)
 {
@@ -1619,6 +1693,14 @@ zfs_ioc_iscsi_perm_check(zfs_cmd_t *zc)
 #endif /* !__APPLE__ */
 }
 
+/*
+ * inputs:
+ * zc_name		name of filesystem
+ * zc_nvlist_src{_size}	nvlist of delegated permissions
+ * zc_perm_action	allow/unallow flag
+ *
+ * outputs:		none
+ */
 static int
 zfs_ioc_set_fsacl(zfs_cmd_t *zc)
 {
@@ -1661,6 +1743,13 @@ zfs_ioc_set_fsacl(zfs_cmd_t *zc)
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_name		name of filesystem
+ *
+ * outputs:
+ * zc_nvlist_src{_size}	nvlist of delegated permissions
+ */
 static int
 zfs_ioc_get_fsacl(zfs_cmd_t *zc)
 {
@@ -1675,6 +1764,12 @@ zfs_ioc_get_fsacl(zfs_cmd_t *zc)
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_name		name of volume
+ *
+ * outputs:		none
+ */
 static int
 zfs_ioc_create_minor(zfs_cmd_t *zc)
 {
@@ -1685,6 +1780,12 @@ zfs_ioc_create_minor(zfs_cmd_t *zc)
 #endif /* __APPLE __*/
 }
 
+/*
+ * inputs:
+ * zc_name		name of volume
+ *
+ * outputs:		none
+ */
 static int
 zfs_ioc_remove_minor(zfs_cmd_t *zc)
 {
@@ -1724,20 +1825,191 @@ zfs_get_vfs(const char *resource)
 static void
 zfs_create_cb(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx)
 {
-	nvlist_t *nvprops = arg;
-	uint64_t version = ZPL_VERSION;
+	zfs_creat_t *zct = arg;
+	uint64_t version;
 
-	(void) nvlist_lookup_uint64(nvprops,
+	if (spa_version(dmu_objset_spa(os)) >= SPA_VERSION_FUID)
+		version = ZPL_VERSION;
+	else
+		version = ZPL_VERSION_FUID - 1;
+
+	(void) nvlist_lookup_uint64(zct->zct_props,
 	    zfs_prop_to_name(ZFS_PROP_VERSION), &version);
 
-	zfs_create_fs(os, cr, version, tx);
+	zfs_create_fs(os, cr, version, zct->zct_norm, tx);
 }
 
+/*
+ * zfs_prop_lookup()
+ *
+ * Look for the property first in the existing property nvlist.  If
+ * it's already present, you're done.  If it's not there, attempt to
+ * find the property value from a parent dataset.  If that fails, fall
+ * back to the property's default value.  In either of these two
+ * cases, if update is TRUE, add a value for the property to the
+ * property nvlist.
+ *
+ * If the rval pointer is non-NULL, copy the discovered value to rval.
+ *
+ * If we get any unexpected errors, bail and return the error number
+ * to the caller.
+ *
+ * If we succeed, return 0.
+ */
+static int
+zfs_prop_lookup(const char *parentname, zfs_prop_t propnum,
+    nvlist_t *proplist, uint64_t *rval, boolean_t update)
+{
+	const char *propname;
+	uint64_t value;
+	int error = ENOENT;
+
+	propname = zfs_prop_to_name(propnum);
+	if (proplist != NULL)
+		error = nvlist_lookup_uint64(proplist, propname, &value);
+	if (error == ENOENT) {
+		error = dsl_prop_get_integer(parentname, propname,
+		    &value, NULL);
+		if (error == ENOENT)
+			value = zfs_prop_default_numeric(propnum);
+		else if (error != 0)
+			return (error);
+		if (update) {
+			ASSERT(proplist != NULL);
+			error = nvlist_add_uint64(proplist, propname, value);
+		}
+	}
+	if (error == 0 && rval)
+		*rval = value;
+	return (error);
+}
+
+/*
+ * zfs_normalization_get
+ *
+ * Get the normalization flag value.  If the properties have
+ * non-default values, make sure the pool version is recent enough to
+ * support these choices.
+ */
+static int
+zfs_normalization_get(const char *dataset, nvlist_t *proplist, int *norm,
+    boolean_t update)
+{
+	char parentname[MAXNAMELEN];
+	char poolname[MAXNAMELEN];
+	char *cp;
+	uint64_t value;
+	int check = 0;
+	int error;
+
+	ASSERT(norm != NULL);
+	*norm = 0;
+
+	(void) strncpy(parentname, dataset, sizeof (parentname));
+	cp = strrchr(parentname, '@');
+	if (cp != NULL) {
+		cp[0] = '\0';
+	} else {
+		cp = strrchr(parentname, '/');
+		if (cp == NULL)
+			return (ENOENT);
+		cp[0] = '\0';
+	}
+
+	(void) strncpy(poolname, dataset, sizeof (poolname));
+	cp = strchr(poolname, '/');
+	if (cp != NULL)
+		cp[0] = '\0';
+
+	/*
+	 * Make sure pool is of new enough vintage to support normalization.
+	 */
+	if (zfs_check_version(poolname, SPA_VERSION_NORMALIZATION))
+		return (0);
+
+	error = zfs_prop_lookup(parentname, ZFS_PROP_UTF8ONLY,
+	    proplist, &value, update);
+	if (error != 0)
+		return (error);
+	if (value != zfs_prop_default_numeric(ZFS_PROP_UTF8ONLY))
+		check = 1;
+
+	error = zfs_prop_lookup(parentname, ZFS_PROP_NORMALIZE,
+	    proplist, &value, update);
+	if (error != 0)
+		return (error);
+	if (value != zfs_prop_default_numeric(ZFS_PROP_NORMALIZE)) {
+		check = 1;
+		switch ((int)value) {
+		case ZFS_NORMALIZE_NONE:
+			break;
+		case ZFS_NORMALIZE_C:
+			*norm |= U8_TEXTPREP_NFC;
+			break;
+		case ZFS_NORMALIZE_D:
+			*norm |= U8_TEXTPREP_NFD;
+			break;
+		case ZFS_NORMALIZE_KC:
+			*norm |= U8_TEXTPREP_NFKC;
+			break;
+		case ZFS_NORMALIZE_KD:
+			*norm |= U8_TEXTPREP_NFKD;
+			break;
+		default:
+			ASSERT((int)value >= ZFS_NORMALIZE_NONE);
+			ASSERT((int)value <= ZFS_NORMALIZE_KD);
+			break;
+		}
+	}
+
+	error = zfs_prop_lookup(parentname, ZFS_PROP_CASE,
+	    proplist, &value, update);
+	if (error != 0)
+		return (error);
+	if (value != zfs_prop_default_numeric(ZFS_PROP_CASE)) {
+		check = 1;
+		switch ((int)value) {
+		case ZFS_CASE_SENSITIVE:
+			break;
+		case ZFS_CASE_INSENSITIVE:
+			*norm |= U8_TEXTPREP_TOUPPER;
+			break;
+		case ZFS_CASE_MIXED:
+			*norm |= U8_TEXTPREP_TOUPPER;
+			break;
+		default:
+			ASSERT((int)value >= ZFS_CASE_SENSITIVE);
+			ASSERT((int)value <= ZFS_CASE_MIXED);
+			break;
+		}
+	}
+
+	/*
+	 * At the moment we are disabling non-default values for these
+	 * properties because they cannot be preserved properly with a
+	 * zfs send.
+	 */
+	if (check == 1)
+		return (ENOTSUP);
+
+	return (0);
+}
+
+/*
+ * inputs:
+ * zc_objset_type	type of objset to create (fs vs zvol)
+ * zc_name		name of new objset
+ * zc_value		name of snapshot to clone from (may be empty)
+ * zc_nvlist_src{_size}	nvlist of properties to apply
+ *
+ * outputs:		none
+ */
 static int
 zfs_ioc_create(zfs_cmd_t *zc)
 {
 	objset_t *clone;
 	int error = 0;
+	zfs_creat_t zct;
 	nvlist_t *nvprops = NULL;
 	void (*cbfunc)(objset_t *os, void *arg, cred_t *cr, dmu_tx_t *tx);
 	dmu_objset_type_t type = zc->zc_objset_type;
@@ -1755,13 +2027,17 @@ zfs_ioc_create(zfs_cmd_t *zc)
 	default:
 		cbfunc = NULL;
 	}
-	if (strchr(zc->zc_name, '@'))
+	if (strchr(zc->zc_name, '@') ||
+	    strchr(zc->zc_name, '%'))
 		return (EINVAL);
 
 	if (zc->zc_nvlist_src != NULL &&
 	    (error = get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
 	    &nvprops)) != 0)
 		return (error);
+
+	zct.zct_norm = 0;
+	zct.zct_props = nvprops;
 
 	if (zc->zc_value[0] != '\0') {
 		/*
@@ -1780,6 +2056,34 @@ zfs_ioc_create(zfs_cmd_t *zc)
 			return (error);
 		}
 		error = dmu_objset_create(zc->zc_name, type, clone, NULL, NULL);
+		if (error) {
+			dmu_objset_close(clone);
+			nvlist_free(nvprops);
+			return (error);
+		}
+		/*
+		 * If caller did not provide any properties, allocate
+		 * an nvlist for properties, as we will be adding our set-once
+		 * properties to it.  This carries the choices made on the
+		 * original file system into the clone.
+		 */
+		if (nvprops == NULL)
+			VERIFY(nvlist_alloc(&nvprops,
+			    NV_UNIQUE_NAME, KM_SLEEP) == 0);
+
+		/*
+		 * We have to have normalization and case-folding
+		 * flags correct when we do the file system creation,
+		 * so go figure them out now.  All we really care about
+		 * here is getting these values into the property list.
+		 */
+		error = zfs_normalization_get(zc->zc_value, nvprops,
+		    &zct.zct_norm, B_TRUE);
+		if (error != 0) {
+			dmu_objset_close(clone);
+			nvlist_free(nvprops);
+			return (error);
+		}
 		dmu_objset_close(clone);
 	} else {
 		if (cbfunc == NULL) {
@@ -1818,30 +2122,45 @@ zfs_ioc_create(zfs_cmd_t *zc)
 			}
 		} else if (type == DMU_OST_ZFS) {
 			uint64_t version;
+			int error;
 
-			if (0 == nvlist_lookup_uint64(nvprops,
-			    zfs_prop_to_name(ZFS_PROP_VERSION), &version) &&
-			    (version < ZPL_VERSION_INITIAL ||
+			error = nvlist_lookup_uint64(nvprops,
+			    zfs_prop_to_name(ZFS_PROP_VERSION), &version);
+
+			if (error == 0 && (version < ZPL_VERSION_INITIAL ||
 			    version > ZPL_VERSION)) {
 				nvlist_free(nvprops);
-				return (EINVAL);
+				return (ENOTSUP);
+			} else if (error == 0 && version >= ZPL_VERSION_FUID &&
+			    zfs_check_version(zc->zc_name, SPA_VERSION_FUID)) {
+				nvlist_free(nvprops);
+				return (ENOTSUP);
+			}
+
+			/*
+			 * We have to have normalization and
+			 * case-folding flags correct when we do the
+			 * file system creation, so go figure them out
+			 * now.  The final argument to zfs_normalization_get()
+			 * tells that routine not to update the nvprops
+			 * list.
+			 */
+			error = zfs_normalization_get(zc->zc_name, nvprops,
+			    &zct.zct_norm, B_FALSE);
+			if (error != 0) {
+				nvlist_free(nvprops);
+				return (error);
 			}
 		}
-
 		error = dmu_objset_create(zc->zc_name, type, NULL, cbfunc,
-		    nvprops);
+		    &zct);
 	}
 
 	/*
 	 * It would be nice to do this atomically.
 	 */
 	if (error == 0) {
-#ifdef __APPLE__
-		if ((error = zfs_set_prop_nvlist(zc->zc_name, zc->zc_dev, 
-						nvprops)) != 0)
-#else
 		if ((error = zfs_set_prop_nvlist(zc->zc_name, nvprops)) != 0)
-#endif /* __APPLE__ */
 			(void) dmu_objset_destroy(zc->zc_name);
 	}
 
@@ -1849,6 +2168,14 @@ zfs_ioc_create(zfs_cmd_t *zc)
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_name	name of filesystem
+ * zc_value	short name of snapshot
+ * zc_cookie	recursive flag
+ *
+ * outputs:	none
+ */
 static int
 zfs_ioc_snapshot(zfs_cmd_t *zc)
 {
@@ -1906,6 +2233,13 @@ zfs_unmount_snap(char *name, void *arg)
 	return (0);
 }
 
+/*
+ * inputs:
+ * zc_name	name of filesystem
+ * zc_value	short name of snapshot
+ *
+ * outputs:	none
+ */
 static int
 zfs_ioc_destroy_snaps(zfs_cmd_t *zc)
 {
@@ -1920,6 +2254,13 @@ zfs_ioc_destroy_snaps(zfs_cmd_t *zc)
 	return (dmu_snapshots_destroy(zc->zc_name, zc->zc_value));
 }
 
+/*
+ * inputs:
+ * zc_name		name of dataset to destroy
+ * zc_objset_type	type of objset
+ *
+ * outputs:		none
+ */
 static int
 zfs_ioc_destroy(zfs_cmd_t *zc)
 {
@@ -1932,18 +2273,33 @@ zfs_ioc_destroy(zfs_cmd_t *zc)
 	return (dmu_objset_destroy(zc->zc_name));
 }
 
+/*
+ * inputs:
+ * zc_name	name of snapshot to roll back to
+ *
+ * outputs:	none
+ */
 static int
 zfs_ioc_rollback(zfs_cmd_t *zc)
 {
 	return (dmu_objset_rollback(zc->zc_name));
 }
 
+/*
+ * inputs:
+ * zc_name	old name of dataset
+ * zc_value	new name of dataset
+ * zc_cookie	recursive flag (only valid for snapshots)
+ *
+ * outputs:	none
+ */
 static int
 zfs_ioc_rename(zfs_cmd_t *zc)
 {
 	boolean_t recursive = zc->zc_cookie & 1;
 	zc->zc_value[sizeof (zc->zc_value) - 1] = '\0';
-	if (dataset_namecheck(zc->zc_value, NULL, NULL) != 0)
+	if (dataset_namecheck(zc->zc_value, NULL, NULL) != 0 ||
+	    strchr(zc->zc_value, '%'))
 		return (EINVAL);
 
 	/*
@@ -1961,79 +2317,199 @@ zfs_ioc_rename(zfs_cmd_t *zc)
 	return (dmu_objset_rename(zc->zc_name, zc->zc_value, recursive));
 }
 
-#if ZFS_LEOPARD_ONLY
-#define file_vnode_withvid(a, b, c) file_vnode(a, b)
-#endif
-	
+/*
+ * inputs:
+ * zc_name		name of containing filesystem
+ * zc_nvlist_src{_size}	nvlist of properties to apply
+ * zc_value		name of snapshot to create
+ * zc_string		name of clone origin (if DRR_FLAG_CLONE)
+ * zc_cookie		file descriptor to recv from
+ * zc_begin_record	the BEGIN record of the stream (not byteswapped)
+ * zc_guid		force flag
+ * zc_history_offset    the offset to start receiving from
+ *
+ * outputs:
+ * zc_cookie		number of bytes read
+ * zc_history_offset    the new offset
+ */
 static int
-zfs_ioc_recvbackup(zfs_cmd_t *zc)
+zfs_ioc_recv(zfs_cmd_t *zc)
 {
-#ifdef __APPLE__
-	vnode_t *vp;
-#else
+#ifndef __APPLE__
 	file_t *fp;
 #endif
+	objset_t *os;
+	dmu_recv_cookie_t drc;
+	zfsvfs_t *zfsvfs = NULL;
+	boolean_t force = (boolean_t)zc->zc_guid;
 	int error, fd;
-	offset_t new_off;
+	offset_t off;
+	nvlist_t *props = NULL;
+	objset_t *origin = NULL;
+	char *tosnap;
+	char tofs[ZFS_MAXNAMELEN];
 
 	if (dataset_namecheck(zc->zc_value, NULL, NULL) != 0 ||
-	    strchr(zc->zc_value, '@') == NULL)
+	    strchr(zc->zc_value, '@') == NULL ||
+	    strchr(zc->zc_value, '%'))
 		return (EINVAL);
 
+	(void) strcpy(tofs, zc->zc_value);
+	tosnap = strchr(tofs, '@');
+	*tosnap = '\0';
+	tosnap++;
+
+	if (zc->zc_nvlist_src != NULL &&
+	    (error = get_nvlist(zc->zc_nvlist_src, zc->zc_nvlist_src_size,
+	    &props)) != 0)
+		return (error);
+
 	fd = zc->zc_cookie;
-#ifdef __APPLE__
-	/*XXX NOEL: due to the fact that BSD doesn't support 
-	 * vnodes for things not of f_type DTYPE_VNODE we
-	 * currently can't handle pipes. This will be fixed as
-	 * soon as we have signed kexts so we are allowed to use the kernel 
-	 * interface to write to PIPE objects.
-	 */
-	if (file_vnode_withvid(fd, &vp, NULL))
-	       return (EBADF);	
-
-	error = dmu_recvbackup(zc->zc_value, &zc->zc_begin_record,
-	    &zc->zc_cookie, (boolean_t)zc->zc_guid, vp,
-	    zc->zc_history_offset);
-
-	new_off = zc->zc_history_offset + zc->zc_cookie;
-	
-	/* This was implemented as VOP_SEEK but we don't support that
-	 * and all the SEEK does is this boundry checking
-	 */
-	if ((new_off < 0 || new_off > MAXOFFSET_T))
-			error = EINVAL;
-	else
-		zc->zc_history_offset = new_off;
-	
-	file_drop(fd);
-#else
+#ifndef __APPLE__
 	fp = getf(fd);
-	if (fp == NULL)
+	if (fp == NULL) {
+		nvlist_free(props);
 		return (EBADF);
-	error = dmu_recvbackup(zc->zc_value, &zc->zc_begin_record,
-	    &zc->zc_cookie, (boolean_t)zc->zc_guid, fp->f_vnode,
-	    fp->f_offset);
+	}
+#endif
+	/*
+	 * Get the zfsvfs for the receiving objset. There
+	 * won't be one if we're operating on a zvol, if the
+	 * objset doesn't exist yet, or is not mounted.
+	 */
 
-	new_off = fp->f_offset + zc->zc_cookie;
-	if (VOP_SEEK(fp->f_vnode, fp->f_offset, &new_off) == 0)
-		fp->f_offset = new_off;
+	error = dmu_objset_open(tofs, DMU_OST_ANY,
+	    DS_MODE_STANDARD | DS_MODE_READONLY, &os);
+	if (!error) {
+		if (dmu_objset_type(os) == DMU_OST_ZFS) {
+			mutex_enter(&os->os->os_user_ptr_lock);
+			zfsvfs = dmu_objset_get_user(os);
+			if (zfsvfs != NULL)
+				VFS_HOLD(zfsvfs->z_vfs);
+			mutex_exit(&os->os->os_user_ptr_lock);
+		}
+		dmu_objset_close(os);
+	}
+
+	if (zc->zc_string[0]) {
+		error = dmu_objset_open(zc->zc_string, DMU_OST_ANY,
+		    DS_MODE_STANDARD | DS_MODE_READONLY, &origin);
+		if (error) {
+			if (zfsvfs != NULL)
+				VFS_RELE(zfsvfs->z_vfs);
+			nvlist_free(props);
+			releasef(fd);
+			return (error);
+		}
+	}
+
+	error = dmu_recv_begin(tofs, tosnap, &zc->zc_begin_record,
+	    force, origin, zfsvfs != NULL, &drc);
+	if (origin)
+		dmu_objset_close(origin);
+	if (error) {
+		if (zfsvfs != NULL)
+			VFS_RELE(zfsvfs->z_vfs);
+		nvlist_free(props);
+		releasef(fd);
+		return (error);
+	}
+
+	/*
+	 * If properties are supplied, they are to completely replace
+	 * the existing ones; "inherit" any existing properties.
+	 */
+	if (props) {
+		objset_t *os;
+		nvlist_t *nv = NULL;
+
+		error = dmu_objset_open(tofs, DMU_OST_ANY,
+		    DS_MODE_STANDARD | DS_MODE_READONLY | DS_MODE_INCONSISTENT,
+		    &os);
+		if (error == 0) {
+			error = dsl_prop_get_all(os, &nv);
+			dmu_objset_close(os);
+		}
+		if (error == 0) {
+			nvpair_t *elem;
+			zfs_cmd_t zc2 = { 0 };
+
+			(void) strcpy(zc2.zc_name, tofs);
+			for (elem = nvlist_next_nvpair(nv, NULL); elem;
+			    elem = nvlist_next_nvpair(nv, elem)) {
+				(void) strcpy(zc2.zc_value, nvpair_name(elem));
+				if (zfs_secpolicy_inherit(&zc2, CRED()) == 0)
+					(void) zfs_ioc_inherit_prop(&zc2);
+			}
+		}
+		if (nv)
+			nvlist_free(nv);
+	}
+
+	/*
+	 * Set properties.  Note, we ignore errors.  Would be better to
+	 * do best-effort in zfs_set_prop_nvlist, too.
+	 */
+	(void) zfs_set_prop_nvlist(tofs, props);
+	nvlist_free(props);
+
+#ifdef __APPLE__
+        off = zc->zc_history_offset;
+        error = dmu_recv_stream(&drc, fd, &off);
+#else
+	off = fp->f_offset;
+	error = dmu_recv_stream(&drc, fp->f_vnode, &off);
+#endif
+
+	if (error == 0) {
+		if (zfsvfs != NULL) {
+			char osname[MAXNAMELEN];
+			int mode;
+
+			(void) zfs_suspend_fs(zfsvfs, osname, &mode);
+			error = dmu_recv_end(&drc);
+			error |= zfs_resume_fs(zfsvfs, osname, mode);
+		} else {
+			error = dmu_recv_end(&drc);
+		}
+	}
+	if (zfsvfs != NULL)
+		VFS_RELE(zfsvfs->z_vfs);
+
+#ifdef __APPLE__
+        zc->zc_cookie = off - zc->zc_history_offset;
+        zc->zc_history_offset = off;
+#else
+	zc->zc_cookie = off - fp->f_offset;
+	if (VOP_SEEK(fp->f_vnode, fp->f_offset, &off, NULL) == 0)
+		fp->f_offset = off;
+#endif
 
 	releasef(fd);
-#endif /* __APPLE__ */
 	return (error);
 }
 
+/*
+ * inputs:
+ * zc_name	name of snapshot to send
+ * zc_value	short name of incremental fromsnap (may be empty)
+ * zc_cookie	file descriptor to send stream to
+ * zc_obj	fromorigin flag (mutually exclusive with zc_value)
+ * zc_history_offset    the offset to start sending from
+ *
+ * outputs:
+ * zc_history_offset    the new offset
+ */
 static int
-zfs_ioc_sendbackup(zfs_cmd_t *zc)
+zfs_ioc_send(zfs_cmd_t *zc)
 {
 	objset_t *fromsnap = NULL;
 	objset_t *tosnap;
-#ifdef __APPLE__
-	vnode_t *vp;
-#else
+#ifndef __APPLE__
 	file_t *fp;
 #endif /* __APPLE__ */
 	int error;
+	offset_t off;
 
 	error = dmu_objset_open(zc->zc_name, DMU_OST_ANY,
 	    DS_MODE_STANDARD | DS_MODE_READONLY, &tosnap);
@@ -2057,34 +2533,36 @@ zfs_ioc_sendbackup(zfs_cmd_t *zc)
 		}
 	}
 
-#ifdef __APPLE__
-	/*XXX NOEL: due to the fact that BSD doesn't support 
-	 * vnodes for things not of f_type DTYPE_VNODE we
-	 * currently can't handle pipes. This will be fixed as
-	 * soon as we have signed kexts so we are allowed to use the kernel 
-	 * interface to write to PIPE objects.
-	 */
-	if (file_vnode_withvid(zc->zc_cookie, &vp, NULL))
-#else
+#ifndef __APPLE__
 	fp = getf(zc->zc_cookie);
 	if (fp == NULL) 
-#endif /* __APPLE__ */
 	{
 		dmu_objset_close(tosnap);
 		if (fromsnap)
 			dmu_objset_close(fromsnap);
 		return (EBADF);
 	}
+#endif
 
 #ifdef __APPLE__
-	error = dmu_sendbackup(tosnap, fromsnap, vp);
-
-	file_drop(zc->zc_cookie);
+	off = zc->zc_history_offset;
 #else
-	error = dmu_sendbackup(tosnap, fromsnap, fp->f_vnode);
+	off = fp->f_offset;
+#endif
 
+#ifdef __APPLE__
+	error = dmu_sendbackup(tosnap, fromsnap, zc->zc_obj, (int)zc->zc_cookie, &off);
+#else
+	error = dmu_sendbackup(tosnap, fromsnap, zc->zc_obj, fp->f_vnode, &off);
+#endif
+
+#ifdef __APPLE__
+	zc->zc_history_offset = off;
+#else
+	if (VOP_SEEK(fp->f_vnode, fp->f_offset, &off, NULL) == 0)
+		fp->f_offset = off;
 	releasef(zc->zc_cookie);
-#endif /* __APPLE__ */
+#endif
 	if (fromsnap)
 		dmu_objset_close(fromsnap);
 	dmu_objset_close(tosnap);
@@ -2158,6 +2636,17 @@ zfs_ioc_clear(zfs_cmd_t *zc)
 	if ((error = spa_open(zc->zc_name, &spa, FTAG)) != 0)
 		return (error);
 
+	/*
+	 * Try to resume any I/Os which may have been suspended
+	 * as a result of a complete pool failure.
+	 */
+	if (!list_is_empty(&spa->spa_zio_list)) {
+		if (zio_vdev_resume_io(spa) != 0) {
+			spa_close(spa, FTAG);
+			return (EIO);
+		}
+	}
+
 	txg = spa_vdev_enter(spa);
 
 	if (zc->zc_guid == 0) {
@@ -2168,7 +2657,7 @@ zfs_ioc_clear(zfs_cmd_t *zc)
 		return (ENODEV);
 	}
 
-	vdev_clear(spa, vd);
+	vdev_clear(spa, vd, B_TRUE);
 
 	(void) spa_vdev_exit(spa, NULL, txg, 0);
 
@@ -2177,6 +2666,13 @@ zfs_ioc_clear(zfs_cmd_t *zc)
 	return (0);
 }
 
+/*
+ * inputs:
+ * zc_name	name of filesystem
+ * zc_value	name of origin snapshot
+ *
+ * outputs:	none
+ */
 static int
 zfs_ioc_promote(zfs_cmd_t *zc)
 {
@@ -2194,71 +2690,154 @@ zfs_ioc_promote(zfs_cmd_t *zc)
 	return (dsl_dataset_promote(zc->zc_name));
 }
 
+#ifdef __APPLE__
+
+static int
+zfs_ioc_unsupported(zfs_cmd_t *zc)
+{
+        return (EINVAL);
+}
+
+#define zfs_ioc_create_minor    zfs_ioc_unsupported
+#define zfs_ioc_remove_minor    zfs_ioc_unsupported
+#define zfs_ioc_share           zfs_ioc_unsupported
+// Issue 25
+
+#else
 /*
  * We don't want to have a hard dependency
  * against some special symbols in sharefs
- * and nfs.  Determine them if needed when
+ * nfs, and smbsrv.  Determine them if needed when
  * the first file system is shared.
- * Neither sharefs or nfs are unloadable modules.
+ * Neither sharefs, nfs or smbsrv are unloadable modules.
  */
-int (*zexport_fs)(void *arg);
-#ifndef __APPLE__
+int (*znfsexport_fs)(void *arg);
 int (*zshare_fs)(enum sharefs_sys_op, share_t *, uint32_t);
-#endif
+int (*zsmbexport_fs)(void *arg, boolean_t add_share);
 
-int zfs_share_inited;
-#ifndef __APPLE__
+int zfs_nfsshare_inited;
+int zfs_smbshare_inited;
+
 ddi_modhandle_t nfs_mod;
 ddi_modhandle_t sharefs_mod;
-#endif
+ddi_modhandle_t smbsrv_mod;
 kmutex_t zfs_share_lock;
+
+static int
+zfs_init_sharefs()
+{
+	int error;
+
+	ASSERT(MUTEX_HELD(&zfs_share_lock));
+	/* Both NFS and SMB shares also require sharetab support. */
+	if (sharefs_mod == NULL && ((sharefs_mod =
+	    ddi_modopen("fs/sharefs",
+	    KRTLD_MODE_FIRST, &error)) == NULL)) {
+		return (ENOSYS);
+	}
+	if (zshare_fs == NULL && ((zshare_fs =
+	    (int (*)(enum sharefs_sys_op, share_t *, uint32_t))
+	    ddi_modsym(sharefs_mod, "sharefs_impl", &error)) == NULL)) {
+		return (ENOSYS);
+	}
+	return (0);
+}
 
 static int
 zfs_ioc_share(zfs_cmd_t *zc)
 {
-#ifndef __APPLE__
 	int error;
 	int opcode;
 
-	if (zfs_share_inited == 0) {
-		mutex_enter(&zfs_share_lock);
-		nfs_mod = ddi_modopen("fs/nfs", KRTLD_MODE_FIRST, &error);
-		sharefs_mod = ddi_modopen("fs/sharefs",
-		    KRTLD_MODE_FIRST, &error);
-		if (nfs_mod == NULL || sharefs_mod == NULL) {
+	switch (zc->zc_share.z_sharetype) {
+	case ZFS_SHARE_NFS:
+	case ZFS_UNSHARE_NFS:
+		if (zfs_nfsshare_inited == 0) {
+			mutex_enter(&zfs_share_lock);
+			if (nfs_mod == NULL && ((nfs_mod = ddi_modopen("fs/nfs",
+			    KRTLD_MODE_FIRST, &error)) == NULL)) {
+				mutex_exit(&zfs_share_lock);
+				return (ENOSYS);
+			}
+			if (znfsexport_fs == NULL &&
+			    ((znfsexport_fs = (int (*)(void *))
+			    ddi_modsym(nfs_mod,
+			    "nfs_export", &error)) == NULL)) {
+				mutex_exit(&zfs_share_lock);
+				return (ENOSYS);
+			}
+			error = zfs_init_sharefs();
+			if (error) {
+				mutex_exit(&zfs_share_lock);
+				return (ENOSYS);
+			}
+			zfs_nfsshare_inited = 1;
 			mutex_exit(&zfs_share_lock);
-			return (ENOSYS);
 		}
-		if (zexport_fs == NULL && ((zexport_fs = (int (*)(void *))
-		    ddi_modsym(nfs_mod, "nfs_export", &error)) == NULL)) {
+		break;
+	case ZFS_SHARE_SMB:
+	case ZFS_UNSHARE_SMB:
+		if (zfs_smbshare_inited == 0) {
+			mutex_enter(&zfs_share_lock);
+			if (smbsrv_mod == NULL && ((smbsrv_mod =
+			    ddi_modopen("drv/smbsrv",
+			    KRTLD_MODE_FIRST, &error)) == NULL)) {
+				mutex_exit(&zfs_share_lock);
+				return (ENOSYS);
+			}
+			if (zsmbexport_fs == NULL && ((zsmbexport_fs =
+			    (int (*)(void *, boolean_t))ddi_modsym(smbsrv_mod,
+			    "lmshrd_share_upcall", &error)) == NULL)) {
+				mutex_exit(&zfs_share_lock);
+				return (ENOSYS);
+			}
+			error = zfs_init_sharefs();
+			if (error) {
+				mutex_exit(&zfs_share_lock);
+				return (ENOSYS);
+			}
+			zfs_smbshare_inited = 1;
 			mutex_exit(&zfs_share_lock);
-			return (ENOSYS);
 		}
-
-		if (zshare_fs == NULL && ((zshare_fs =
-		    (int (*)(enum sharefs_sys_op, share_t *, uint32_t))
-		    ddi_modsym(sharefs_mod, "sharefs_impl", &error)) == NULL)) {
-			mutex_exit(&zfs_share_lock);
-			return (ENOSYS);
-		}
-		zfs_share_inited = 1;
-		mutex_exit(&zfs_share_lock);
+		break;
+	default:
+		return (EINVAL);
 	}
 
-	if (error = zexport_fs((void *)(uintptr_t)zc->zc_share.z_exportdata))
-		return (error);
+	switch (zc->zc_share.z_sharetype) {
+	case ZFS_SHARE_NFS:
+	case ZFS_UNSHARE_NFS:
+		if (error =
+		    znfsexport_fs((void *)
+		    (uintptr_t)zc->zc_share.z_exportdata))
+			return (error);
+		break;
+	case ZFS_SHARE_SMB:
+	case ZFS_UNSHARE_SMB:
+		if (error = zsmbexport_fs((void *)
+		    (uintptr_t)zc->zc_share.z_exportdata,
+		    zc->zc_share.z_sharetype == ZFS_SHARE_SMB ?
+		    B_TRUE : B_FALSE)) {
+			return (error);
+		}
+		break;
+	}
 
-	opcode = (zc->zc_share.z_sharetype == B_TRUE) ?
+	opcode = (zc->zc_share.z_sharetype == ZFS_SHARE_NFS ||
+	    zc->zc_share.z_sharetype == ZFS_SHARE_SMB) ?
 	    SHAREFS_ADD : SHAREFS_REMOVE;
 
+	/*
+	 * Add or remove share from sharetab
+	 */
 	error = zshare_fs(opcode,
 	    (void *)(uintptr_t)zc->zc_share.z_sharedata,
 	    zc->zc_share.z_sharemax);
 
 	return (error);
 
-#endif /*!__APPLE__ */
 }
+#endif /*!__APPLE__ */
 
 /*
  * pool create, destroy, and export don't log the history as part of
@@ -2296,8 +2875,8 @@ static zfs_ioc_vec_t zfs_ioc_vec[] = {
 	{ zfs_ioc_destroy, zfs_secpolicy_destroy, DATASET_NAME, B_TRUE },
 	{ zfs_ioc_rollback, zfs_secpolicy_rollback, DATASET_NAME, B_TRUE },
 	{ zfs_ioc_rename, zfs_secpolicy_rename,	DATASET_NAME, B_TRUE },
-	{ zfs_ioc_recvbackup, zfs_secpolicy_receive, DATASET_NAME, B_TRUE },
-	{ zfs_ioc_sendbackup, zfs_secpolicy_send, DATASET_NAME, B_TRUE },
+	{ zfs_ioc_recv, zfs_secpolicy_receive, DATASET_NAME, B_TRUE },
+	{ zfs_ioc_send, zfs_secpolicy_send, DATASET_NAME, B_TRUE },
 	{ zfs_ioc_inject_fault,	zfs_secpolicy_inject, NO_NAME, B_FALSE },
 	{ zfs_ioc_clear_fault, zfs_secpolicy_inject, NO_NAME, B_FALSE },
 	{ zfs_ioc_inject_list_next, zfs_secpolicy_inject, NO_NAME, B_FALSE },
@@ -2320,9 +2899,9 @@ static zfs_ioc_vec_t zfs_ioc_vec[] = {
 
 static int
 #ifdef __APPLE__
- zfsdev_ioctl(dev_t dev, u_long cmd, caddr_t data,  __unused int flag, struct proc *p)
+zfsdev_ioctl(dev_t dev, u_long cmd, caddr_t data,  __unused int flag, struct proc *p)
 #else
- zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
+zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 #endif
 {
 	zfs_cmd_t *zc;
@@ -2333,7 +2912,7 @@ static int
 	// 10a286 vfs_context_t ctx = vfs_context_create(NULL)
 #else
 	if (getminor(dev) != 0)
-		return (zvol_ioctl(dev, cmd, data, p));
+		return (zvol_ioctl(dev, cmd, arg, flag, cr, rvalp));
 #endif /* __APPLE__ */
 
 #ifdef __APPLE__
@@ -2586,6 +3165,7 @@ static struct modlinkage modlinkage = {
 
 
 uint_t zfs_fsyncer_key;
+extern uint_t rrw_tsd_key;
 
 int
 _init(void)
@@ -2604,6 +3184,7 @@ _init(void)
 	}
 
 	tsd_create(&zfs_fsyncer_key, NULL);
+	tsd_create(&rrw_tsd_key, NULL);
 
 	error = ldi_ident_from_mod(&modlinkage, &zfs_li);
 	ASSERT(error == 0);
@@ -2626,10 +3207,12 @@ _fini(void)
 	zvol_fini();
 	zfs_fini();
 	spa_fini();
-	if (zfs_share_inited) {
+	if (zfs_nfsshare_inited)
 		(void) ddi_modclose(nfs_mod);
+	if (zfs_smbshare_inited)
+		(void) ddi_modclose(smbsrv_mod);
+	if (zfs_nfsshare_inited || zfs_smbshare_inited)
 		(void) ddi_modclose(sharefs_mod);
-	}
 
 	tsd_destroy(&zfs_fsyncer_key);
 	ldi_ident_release(zfs_li);

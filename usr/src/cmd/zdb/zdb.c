@@ -720,7 +720,7 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	if (dd == NULL)
 		return;
 
-	ASSERT(size == sizeof (*dd));
+	ASSERT3U(size, >=, sizeof (dsl_dir_phys_t));
 
 	crtime = dd->dd_creation_time;
 	nicenum(dd->dd_used_bytes, used);
@@ -734,8 +734,8 @@ dump_dsl_dir(objset_t *os, uint64_t object, void *data, size_t size)
 	    (u_longlong_t)dd->dd_head_dataset_obj);
 	(void) printf("\t\tparent_dir_obj = %llu\n",
 	    (u_longlong_t)dd->dd_parent_obj);
-	(void) printf("\t\tclone_parent_obj = %llu\n",
-	    (u_longlong_t)dd->dd_clone_parent_obj);
+	(void) printf("\t\torigin_obj = %llu\n",
+	    (u_longlong_t)dd->dd_origin_obj);
 	(void) printf("\t\tchild_dir_zapobj = %llu\n",
 	    (u_longlong_t)dd->dd_child_dir_zapobj);
 	(void) printf("\t\tused_bytes = %s\n", used);
@@ -925,7 +925,7 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES] = {
 	dump_zap,		/* DSL props			*/
 	dump_dsl_dataset,	/* DSL dataset			*/
 	dump_znode,		/* ZFS znode			*/
-	dump_acl,		/* ZFS ACL			*/
+	dump_acl,		/* ZFS V0 ACL			*/
 	dump_uint8,		/* ZFS plain file		*/
 	dump_zpldir,		/* ZFS directory		*/
 	dump_zap,		/* ZFS master node		*/
@@ -940,6 +940,10 @@ static object_viewer_t *object_viewer[DMU_OT_NUMTYPES] = {
 	dump_uint64,		/* SPA history offsets		*/
 	dump_zap,		/* Pool properties		*/
 	dump_zap,		/* DSL permissions		*/
+	dump_acl,		/* ZFS ACL			*/
+	dump_uint8,		/* ZFS SYSACL			*/
+	dump_none,		/* FUID nvlist			*/
+	dump_packed_nvlist,	/* FUID nvlist size		*/
 };
 
 static void
