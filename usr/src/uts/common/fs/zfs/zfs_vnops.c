@@ -3245,11 +3245,12 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 			XVA_SET_RTN(xvap, XAT_CREATETIME);
 		}
 	}
-#endif /*!__APPLE__*/
 
 	ZFS_TIME_DECODE(&vap->va_atime, pzp->zp_atime);
 	ZFS_TIME_DECODE(&vap->va_mtime, pzp->zp_mtime);
 	ZFS_TIME_DECODE(&vap->va_ctime, pzp->zp_ctime);
+
+#endif /*!__APPLE__*/
 
 	mutex_exit(&zp->z_lock);
 
