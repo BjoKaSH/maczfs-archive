@@ -2908,8 +2908,8 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 	uint_t vec;
 	int error, rc;
 #ifdef __APPLE__
-	cred_t *cr;
-	// 10a286 vfs_context_t ctx = vfs_context_create(NULL)
+	vfs_context_t ctx = vfs_context_create(NULL);
+	cred_t *cr = (cred_t *)vfs_context_ucred(ctx);
 #else
 	if (getminor(dev) != 0)
 		return (zvol_ioctl(dev, cmd, arg, flag, cr, rvalp));
@@ -2918,11 +2918,9 @@ zfsdev_ioctl(dev_t dev, int cmd, intptr_t arg, int flag, cred_t *cr, int *rvalp)
 #ifdef __APPLE__
 	vec = ZFS_IOC_NUM(cmd);
 	zc = (zfs_cmd_t *)data;
-	// 10a286 ctx = vfs_context_create(NULL) // again?
-	cr = (uintptr_t)NOCRED;    /* wants vfs_context_current() */
 	zc->zc_dev = dev;
 	error = zfs_ioc_vec[vec].zvec_secpolicy(zc, cr);
-	// 10a286 vfs_context_rele(ctx);
+	vfs_context_rele(ctx);
 #else
 	vec = cmd - ZFS_IOC;
 	ASSERT3U(getmajor(dev), ==, ddi_driver_major(zfs_dip));
