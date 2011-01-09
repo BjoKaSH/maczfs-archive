@@ -3050,7 +3050,7 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 	vap->va_mode = pzp->zp_mode & MODEMASK;
 	vap->va_uid = pzp->zp_uid;
 	vap->va_gid = pzp->zp_gid;
-//	vap->va_fsid = zp->z_zfsvfs->z_vfs->vfs_dev;
+	vap->va_fsid = vfs_statfs(zp->z_zfsvfs->z_vfs)->f_fsid.val[0];
 	/*
 	 * On Mac OS X we always export the root directory id as 2
 	 */
@@ -3090,7 +3090,7 @@ zfs_getattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 		VNODE_ATTR_va_mode |
 		VNODE_ATTR_va_uid |
 		VNODE_ATTR_va_gid |
-//		VNODE_ATTR_va_fsid |
+		VNODE_ATTR_va_fsid |
 		VNODE_ATTR_va_fileid |
 		VNODE_ATTR_va_nlink |
 		VNODE_ATTR_va_data_size |
@@ -3316,7 +3316,7 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 #ifdef __APPLE__
 	vnode_t  *vp = ap->a_vp;
 	vattr_t  *vap = ap->a_vap;
-	uint64_t  mask; // = vap->va_active;
+	uint64_t  mask = vap->va_active;
 	uint64_t  saved_mask;
 	cred_t  *cr = (cred_t *)vfs_context_ucred(ap->a_context);
 	int flags = 0;
@@ -3340,19 +3340,21 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 	xoptattr_t	*xoap;
 	boolean_t skipaclchk = (flags & ATTR_NOACLCHECK) ? B_TRUE : B_FALSE;
 
-#ifndef __APPLE__
 	if (mask == 0)
 		return (0);
 
+#ifndef __APPLE__
 	if (mask & AT_NOSET)
 		return (EINVAL);
-
+#endif /* __APPLE__ */
+	
 	ZFS_ENTER(zfsvfs);
 	ZFS_VERIFY_ZP(zp);
 
 	pzp = zp->z_phys;
 	zilog = zfsvfs->z_log;
 
+#ifndef __APPLE__
 	/*
 	 * Make sure that if we have ephemeral uid/gid or xvattr specified
 	 * that file system is at proper version level
@@ -3369,7 +3371,6 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 
 	if (mask & AT_SIZE && vp->v_type != VREG && vp->v_type != VFIFO)
 		return (EINVAL);
-#endif /* !__APPLE__ */
 
 	/*
 	 * If this is an xvattr_t, then get a pointer to the structure of
@@ -3387,6 +3388,7 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 
 	if ((mask & AT_SIZE) && (pzp->zp_flags & ZFS_READONLY))
 		return (EPERM);
+#endif /* !__APPLE__ */
 
 top:
 	attrzp = NULL;
