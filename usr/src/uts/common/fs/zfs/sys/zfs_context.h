@@ -341,35 +341,11 @@ enum create     { CRCREAT, CRMKNOD, CRMKDIR };  /* reason for create */
 #endif
 
 typedef struct vnode_attr vattr_t;
-
-#define va_mask		va_active
-#define va_nodeid   va_fileid
-#define va_nblocks  va_filerev
-
-/*
- * vnode attr translations
- */
-#define	AT_TYPE		VNODE_ATTR_va_type
-#define	AT_MODE		VNODE_ATTR_va_mode
-#define	AT_UID		VNODE_ATTR_va_uid
-#define	AT_GID		VNODE_ATTR_va_gid
-#define	AT_ATIME	VNODE_ATTR_va_access_time
-#define	AT_MTIME	VNODE_ATTR_va_modify_time
-#define AT_CTIME	VNODE_ATTR_va_change_time
-#define AT_SIZE		VNODE_ATTR_va_data_size
-
-
-#define va_size		va_data_size
-#define va_atime	va_access_time
-#define va_mtime	va_modify_time
-#define va_ctime	va_change_time
-
 typedef u_longlong_t	rlim64_t;
 
 #define	RLIM64_INFINITY		((rlim64_t)-3)
 #define	RLIM64_SAVED_MAX	((rlim64_t)-2)
 #define	RLIM64_SAVED_CUR	((rlim64_t)-1)
-
 
 /*
  * Package up an I/O request on a vnode into a uio and do it.

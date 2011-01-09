@@ -27,6 +27,9 @@
 
 #pragma ident	"%Z%%M%	%I%	%E% SMI"
 
+#ifdef __APPLE__
+#include "maczfs_vnode.h"
+#endif
 #include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/vdev_file.h>

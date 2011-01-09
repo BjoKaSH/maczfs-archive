@@ -500,8 +500,9 @@ typedef struct xoptattr {
         uint64_t        va_dirlinkcount;  /* Real references to dir (i.e. excluding "." and ".." refs) */
 		
         /* add new fields here only */		
-	};	
+	};
 #endif /* !_KERNEL */
+//	typedef struct vnode_attr vattr_t;
 #endif /* __APPLE__ */
 
 /*
@@ -602,6 +603,31 @@ typedef vattr_t		vattr32_t;
 /*
  * Attributes of interest to the caller of setattr or getattr.
  */
+#ifdef __APPLE__
+
+#define va_mask		va_active
+#define va_nodeid   va_fileid
+#define va_nblocks  va_filerev
+
+#define va_size		va_data_size
+#define va_atime	va_access_time
+#define va_mtime	va_modify_time
+#define va_ctime	va_change_time
+	
+#define	AT_TYPE		VNODE_ATTR_va_type
+#define	AT_MODE		VNODE_ATTR_va_mode
+#define	AT_UID		VNODE_ATTR_va_uid
+#define	AT_GID		VNODE_ATTR_va_gid
+#define	AT_ATIME	VNODE_ATTR_va_access_time
+#define	AT_MTIME	VNODE_ATTR_va_modify_time
+#define AT_CTIME	VNODE_ATTR_va_change_time
+#define AT_SIZE		VNODE_ATTR_va_data_size
+
+// We don't support XVATTR so make the mask 0
+#define	AT_XVATTR	0
+
+#else
+
 #define	AT_TYPE		0x00001
 #define	AT_MODE		0x00002
 #define	AT_UID		0x00004
@@ -618,6 +644,7 @@ typedef vattr_t		vattr32_t;
 #define	AT_NBLOCKS	0x02000
 /*			0x04000 */	/* unused */
 #define	AT_SEQ		0x08000
+
 /*
  * If AT_XVATTR is set then there are additional bits to process in
  * the xvattr_t's attribute bitmap.  If this is not set then the bitmap
@@ -625,6 +652,7 @@ typedef vattr_t		vattr32_t;
  * That is, setting AT_ALL will NOT set AT_XVATTR.
  */
 #define	AT_XVATTR	0x10000
+#endif
 
 #define	AT_ALL		(AT_TYPE|AT_MODE|AT_UID|AT_GID|AT_FSID|AT_NODEID|\
 			AT_NLINK|AT_SIZE|AT_ATIME|AT_MTIME|AT_CTIME|\
@@ -762,6 +790,7 @@ typedef vattr_t		vattr32_t;
 		((xvap)->xva_mapsize > XVA_INDEX(attr))) ?		\
 	((XVA_RTNATTRMAP(xvap))[XVA_INDEX(attr)] & XVA_ATTRBIT(attr)) : 0)
 
+#ifndef __APPLE__
 /*
  *  Modes.  Some values same as S_xxx entries from stat.h for convenience.
  */
@@ -775,6 +804,7 @@ typedef vattr_t		vattr32_t;
 #define	VREAD		00400
 #define	VWRITE		00200
 #define	VEXEC		00100
+#endif /* !__APPLE__ */
 
 #define	MODEMASK	07777		/* mode bits plus permission bits */
 #define	PERMMASK	00777		/* permission bits */
