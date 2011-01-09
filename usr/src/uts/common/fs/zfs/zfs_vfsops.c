@@ -1382,7 +1382,7 @@ zfs_mount(vfs_t *vfsp, vnode_t *mvp, struct mounta *uap, cred_t *cr)
 #endif /* __APPLE__ */
 
 #ifdef __APPLE__
-	error = zfs_domount(mp, osname, context);
+	error = zfs_domount(mp, osname, (cred_t *)vfs_context_ucred(context));
 #else
 	error = zfs_domount(vfsp, osname, cr);
 #endif /* __APPLE__ */
