@@ -232,7 +232,7 @@ zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	uint64_t seq;
 	lr_create_t *lr;
 	lr_acl_create_t *lracl;
-	size_t aclsize;
+	size_t aclsize = 0;
 	size_t xvatsize = 0;
 	size_t txsize;
 	xvattr_t *xvap = (xvattr_t *)vap;
@@ -280,12 +280,12 @@ zfs_log_create(zilog_t *zilog, dmu_tx_t *tx, uint64_t txtype,
 	lr->lr_doid = dzp->z_id;
 	lr->lr_foid = zp->z_id;
 	lr->lr_mode = zp->z_phys->zp_mode;
-	if (!IS_EPHEMERAL(zp->z_phys->zp_uid)) {
+	if (!IS_EPHEMERAL(zp->z_phys->zp_uid) || !fuidp) {
 		lr->lr_uid = (uint64_t)zp->z_phys->zp_uid;
 	} else {
 		lr->lr_uid = fuidp->z_fuid_owner;
 	}
-	if (!IS_EPHEMERAL(zp->z_phys->zp_gid)) {
+	if (!IS_EPHEMERAL(zp->z_phys->zp_gid) || !fuidp) {
 		lr->lr_gid = (uint64_t)zp->z_phys->zp_gid;
 	} else {
 		lr->lr_gid = fuidp->z_fuid_group;
