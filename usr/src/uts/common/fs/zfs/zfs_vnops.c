@@ -1849,12 +1849,7 @@ out:
 
 	if (error) {
 		if (zp)
-// Issue 34
-#ifdef __APPLE__
-			vnode_put(ZTOV(zp));
-#else
 			VN_RELE(ZTOV(zp));
-#endif /* __APPLE__ */
 	} else {
 		*vpp = ZTOV(zp);
 #ifndef __APPLE__
@@ -2530,12 +2525,7 @@ top:
 	rw_exit(&zp->z_name_lock);
 out:
 	zfs_dirent_unlock(dl);
-// Issue 34
-#ifdef __APPLE__
-	vnode_put(vp);
-#else
 	VN_RELE(vp);
-#endif /* __APPLE__ */
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -3646,12 +3636,7 @@ top:
 	err = dmu_tx_assign(tx, zfsvfs->z_assign);
 	if (err) {
 		if (attrzp)
-// Issue 34
-#ifdef __APPLE__
-			vnode_put(ZTOV(attrzp));
-#else
 			VN_RELE(ZTOV(attrzp));
-#endif
 		if (err == ERESTART && zfsvfs->z_assign == TXG_NOWAIT) {
 			dmu_tx_wait(tx);
 			dmu_tx_abort(tx);
@@ -3824,12 +3809,7 @@ out:
 #endif
 	if (attrzp) 
 	{
-// Issue 34
-#ifdef __APPLE__
-		vnode_put(ZTOV(attrzp));
-#else
 		VN_RELE(ZTOV(attrzp));
-#endif /* __APPLE__ */
 	}
 	dmu_tx_commit(tx);
 
@@ -4274,12 +4254,7 @@ out:
 
 	VN_RELE(ZTOV(szp));
 	if (tzp)
-// Issue 34
-#ifdef __APPLE__
-		vnode_put(ZTOV(tzp));
-#else
 		VN_RELE(ZTOV(tzp));
-#endif
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -4466,12 +4441,7 @@ out:
 #endif
 
 	zfs_dirent_unlock(dl);
-// Issue 34
-#ifdef __APPLE__
-	vnode_put(ZTOV(zp));
-#else
 	VN_RELE(ZTOV(zp));
-#endif
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
@@ -5259,7 +5229,7 @@ zfs_vnop_whiteout(struct vnop_whiteout_args *ap)
 			remove_args.a_context = ap->a_context;
 
 			error = zfs_vnop_remove(&remove_args);
-			vnode_put(vp);
+			VN_RELE(vp);
 			break;
 		}
 
@@ -5381,12 +5351,8 @@ zfs_vnop_getxattr(struct vnop_getxattr_args *ap)
 		error = VNOP_READ(xvp, uio, 0, ap->a_context);
 	}
 out:
-	if (xvp) {
-		vnode_put(xvp);
-	}
-	if (xdvp) {
-		vnode_put(xdvp);
-	}
+	VN_RELE(xvp);
+	VN_RELE(xdvp);
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
@@ -5729,12 +5695,8 @@ zfs_vnop_setxattr(struct vnop_setxattr_args *ap)
 	error = VNOP_WRITE(xvp, uio, 0, ap->a_context);
 
 out:
-	if (xdvp) {
-		vnode_put(xdvp);
-	}
-	if (xvp) {
-		vnode_put(xvp);
-	}
+	VN_RELE(xdvp);
+	VN_RELE(xvp);
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
@@ -5799,12 +5761,8 @@ zfs_vnop_removexattr(struct vnop_removexattr_args *ap)
 	error = zfs_vnop_remove(&args);
 
 out:
-	if (xvp) {
-		vnode_put(xvp);
-	}
-	if (xdvp) {
-		vnode_put(xdvp);
-	}
+	VN_RELE(xvp);
+	VN_RELE(xdvp);
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
@@ -5891,9 +5849,7 @@ out:
 	if (uio == NULL) {
 		*ap->a_size = size;
 	}
-	if (xdvp) {
-		vnode_put(xdvp);
-	}
+	VN_RELE(xdvp);
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
@@ -5942,9 +5898,7 @@ zfs_vnop_getnamedstream(struct vnop_getnamedstream_args* ap)
 			error = ENOATTR;
 	}
 out:
-	if (xdvp) {
-		vnode_put(xdvp);
-	}
+	VN_RELE(xdvp);
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
@@ -6007,9 +5961,7 @@ zfs_vnop_makenamedstream(struct vnop_makenamedstream_args* ap)
 
 	error = zfs_vnop_create(&args);
 out:
-	if (xdvp) {
-		vnode_put(xdvp);
-	}
+	VN_RELE(xdvp);
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
