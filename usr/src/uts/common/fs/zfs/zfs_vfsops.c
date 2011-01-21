@@ -2176,10 +2176,10 @@ zfs_vfs_vget(struct mount *mp, ino64_t ino, vnode_t **vpp, __unused vfs_context_
 	 * already 2).
 	 */
 	if ((ino == zfsvfs->z_root) && (zfsvfs->z_root != 2)) {
-		ZFS_EXIT(zfsvfs);
-		return (ENOENT);
+		error = ENOENT;
+	} else {
+		error = zfs_vget_internal(zfsvfs, ino, vpp);
 	}
-	error = zfs_vget_internal(zfsvfs, ino, vpp);
 
 	ZFS_EXIT(zfsvfs);
 	return (error);
