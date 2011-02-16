@@ -6,6 +6,7 @@
 # Note that this currently only works on 10.6 platforms
 #
 GDB=/usr/bin/gdb
+[ -x $GDB ] || GDB=/Developer/usr/bin/gdb
 KU=/usr/bin/kextutil
 KitPath=/Volumes/KernelDebugKit
 DEBUG_KERNEL=
@@ -43,6 +44,8 @@ then
   exit 1
 fi
 
+ARCH=$($AWK '/root:xnu/ { gsub("^.*/RELEASE_",""); print tolower($0) }' "$PANIC")
+
 if [ -f $KitPath/mach_kernel ]
 then
   DEBUG_KERNEL="-no-system-extensions -kernel $KitPath/mach_kernel -repository $KitPath"
@@ -51,7 +54,7 @@ fi
 
 ADDRESSES=$($AWK '/@0x/ { gsub("^ *|->.*$|\\(.*\\)","");print "-address",$0 }' "$PANIC")
 
-$KU -quiet -no-caches $DEBUG_KERNEL -no-load -no-authentication -symbols $SymDir $Kext $ADDRESSES 
+$KU -quiet -no-caches $DEBUG_KERNEL -no-load -no-authentication -symbols $SymDir -arch $ARCH $Kext $ADDRESSES 
 
 if [ $? -ne 0 ]
 then
@@ -66,4 +69,4 @@ EOF
 $AWK '/^0x/ {print "x/i " $3}' < "$PANIC" >> $TEMPDOC
 echo quit >> $TEMPDOC
 
-$GDB -batch -arch `sysctl -b hw.machine` -x /tmp/kext.gdb $GDB_KERNEL 
+$GDB -batch -arch $ARCH -x /tmp/kext.gdb $GDB_KERNEL 
