@@ -16,12 +16,12 @@ TEMPDOC=/tmp/kext.gdb
 AWK=/usr/bin/awk
 PANIC=$1
 # For 10.5 systems
-# PANICS=/Library/Logs/PanicReporter
-PANICS=/Library/Logs/DiagnosticReports
+# PANICS='/Library/Logs/PanicReporter'
+PANICS='/Library/Logs/DiagnosticReports'
 
 if [ ! -r "$PANIC" ]
 then
-  PANIC=`grep -l zfs.fs $PANICS/*.panic | tail -n 1`
+  PANIC=`grep -l zfs.fs "$PANICS"/*.panic | tail -n 1`
   echo No panic file given, assuming $PANIC
 fi
 
@@ -49,7 +49,7 @@ then
   GDB_KERNEL=$KitPath/mach_kernel
 fi
 
-ADDRESSES=$($AWK '/@0x/ { gsub("^ *|->.*$|\\(.*\\)","");print "-address",$0 }' $PANIC)
+ADDRESSES=$($AWK '/@0x/ { gsub("^ *|->.*$|\\(.*\\)","");print "-address",$0 }' "$PANIC")
 
 $KU -quiet -no-caches $DEBUG_KERNEL -no-load -no-authentication -symbols $SymDir $Kext $ADDRESSES 
 
@@ -63,7 +63,7 @@ cat > $TEMPDOC <<EOF
 set kext-symbol-file-path $SymDir
 add-kext $Kext
 EOF
-$AWK '/^0x/ {print "x/i " $3}' < $PANIC >> $TEMPDOC
+$AWK '/^0x/ {print "x/i " $3}' < "$PANIC" >> $TEMPDOC
 echo quit >> $TEMPDOC
 
 $GDB -batch -arch `sysctl -b hw.machine` -x /tmp/kext.gdb $GDB_KERNEL 
