@@ -1955,7 +1955,7 @@ top:
 	 * Attempt to lock directory; fail if entry doesn't exist.
 	 */
 #ifdef __APPLE__
-	if (error = zfs_dirent_lock(&dl, dzp, ct->componentname, &zp, ZEXISTS, NULL, realnmp))
+	if (error = zfs_dirent_lock(&dl, dzp, ct->componentname, &zp, zflg, NULL, realnmp))
 #else
 	if (error = zfs_dirent_lock(&dl, dzp, name, &zp, zflg, NULL, realnmp))
 #endif /* __APPLE__ */
@@ -5098,7 +5098,6 @@ zfs_vnop_reclaim(struct vnop_reclaim_args *ap)
 	if (zp == NULL)
 	{
 		// Issue 39
-		vnode_clearfsnode(vp);
 		return(0);
 	}
 	
@@ -5118,6 +5117,7 @@ zfs_vnop_reclaim(struct vnop_reclaim_args *ap)
 		 * zfs_objset_close() deal with the znode.
 		 */
 		zp->z_vnode = NULL;
+		zp->z_vid = 0;
 		mutex_exit(&zp->z_lock);
 	} else {
 		mutex_exit(&zp->z_lock);
