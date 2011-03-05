@@ -49,7 +49,7 @@
   </contents>
   <resources bg-scale="proportional" bg-align="topright">
     <locale lang="en-GB">
-      <resource relative="true" mod="true" type="background">../zfs_bundle/VolumeIcon.icns</resource>
+      <resource relative="true" mod="true" type="background">../support/background.pdf</resource>
       <resource relative="true" mod="true" type="license">../LICENSE.txt</resource>
       <resource relative="true" mod="true" type="readme">../README.txt</resource>
       <resource mime-type="text/rtf" kind="embedded"
