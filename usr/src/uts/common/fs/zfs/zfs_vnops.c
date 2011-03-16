@@ -156,6 +156,7 @@
  * In general, this is how things should be ordered in each vnode op:
  *
  *	ZFS_ENTER(zfsvfs);		// exit if unmounted
+ *	ZFS_VERIFY_ZP(zp);		// check any ZPs needed
  * top:
  *	zfs_dirent_lock(&dl, ...)	// lock directory entry (may VN_HOLD())
  *	rw_enter(...);			// grab any other locks you need
@@ -288,6 +289,7 @@ zfs_vnop_ioctl(struct vnop_ioctl_args *ap)
 	int error;
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	switch (ap->a_command) {
 	case F_FULLFSYNC: {
@@ -2961,10 +2963,10 @@ zfs_fsync(vnode_t *vp, int syncflag, cred_t *cr, caller_context_t *ct)
 	zfsvfs = zp->z_zfsvfs;
 		
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 #ifdef ZFS_DEBUG
 	znode_stalker(zp, N_vnop_fsync_zil);
 #endif
-	ZFS_VERIFY_ZP(zp);
 	zil_commit(zfsvfs->z_log, zp->z_last_itx, zp->z_id);
 	ZFS_EXIT(zfsvfs);
 	return (0);
@@ -3964,7 +3966,6 @@ zfs_rename(vnode_t *sdvp, char *snm, vnode_t *tdvp, char *tnm, cred_t *cr,
 
 	ZFS_ENTER(zfsvfs);
 	ZFS_VERIFY_ZP(sdzp);
-	zilog = zfsvfs->z_log;
 
 #ifndef __APPLE__
 	/*
@@ -4722,6 +4723,7 @@ zfs_vnop_pagein(struct vnop_pagein_args *ap)
 	}
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	ASSERT(vn_has_cached_data(vp));
 	ASSERT(zp->z_dbuf_held && zp->z_phys);
@@ -4869,6 +4871,7 @@ zfs_putapage(vnode_t *vp, page_t *pp, u_offset_t *offp,
 	}
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	ASSERT(vn_has_cached_data(vp));
 	ASSERT(zp->z_dbuf_held && zp->z_phys);
@@ -5042,6 +5045,7 @@ zfs_vnop_mmap(struct vnop_mmap_args *ap)
 	zfsvfs_t *zfsvfs = zp->z_zfsvfs;
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	if ( !vnode_isreg(vp) ) {
 		ZFS_EXIT(zfsvfs);
@@ -5308,6 +5312,7 @@ zfs_vnop_getxattr(struct vnop_getxattr_args *ap)
 	int  error;
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	/*
 	 * Recursive attributes are not allowed.
@@ -5658,6 +5663,7 @@ zfs_vnop_setxattr(struct vnop_setxattr_args *ap)
 	int  error;
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	/*
 	 * Recursive attributes are not allowed.
@@ -5719,6 +5725,7 @@ zfs_vnop_removexattr(struct vnop_removexattr_args *ap)
 	int  error;
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	/*
 	 * Recursive attributes are not allowed.
@@ -5790,6 +5797,7 @@ zfs_vnop_listxattr(struct vnop_listxattr_args *ap)
 	int  error = 0;
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	/*
 	 * Recursive attributes are not allowed.
@@ -5872,6 +5880,7 @@ zfs_vnop_getnamedstream(struct vnop_getnamedstream_args* ap)
 
 	*svpp = NULLVP;
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	/*
 	 * Mac OS X only supports the "com.apple.ResourceFork" stream.
@@ -5922,6 +5931,7 @@ zfs_vnop_makenamedstream(struct vnop_makenamedstream_args* ap)
 
 	*ap->a_svpp = NULLVP;
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	/* Only regular files can have a resource fork stream. */
 	if ( !vnode_isreg(vp) ) {
@@ -5961,7 +5971,9 @@ zfs_vnop_makenamedstream(struct vnop_makenamedstream_args* ap)
 
 	error = zfs_vnop_create(&args);
 out:
-	VN_RELE(xdvp);
+	if(xdvp) {
+		VN_RELE(xdvp);
+	}
 	ZFS_EXIT(zfsvfs);
 
 	return (error);
@@ -5979,6 +5991,7 @@ zfs_vnop_removenamedstream(struct vnop_removenamedstream_args* ap)
 	int error = 0;
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(zp);
 
 	/*
 	 * Mac OS X only supports the "com.apple.ResourceFork" stream.
@@ -6022,6 +6035,7 @@ zfs_vnop_exchange(__unused struct vnop_exchange_args *ap)
 	zfsvfs = fzp->z_zfsvfs;
 
 	ZFS_ENTER(zfsvfs);
+	ZFS_VERIFY_ZP(fzp);
 
 	/* ADD MISSING CODE HERE */
 
