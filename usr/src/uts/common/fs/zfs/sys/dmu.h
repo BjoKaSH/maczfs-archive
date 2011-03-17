@@ -176,9 +176,8 @@ int dmu_objset_destroy(const char *name);
 #define  dmu_objset_rename(old, new, recursive)       dsl_dataset_rename((old), (new), (recursive))
 #else
 int dmu_snapshots_destroy(char *fsname, char *snapname);
-int dmu_objset_rename(const char *name, const char *newname, boolean_t recursive);
 #endif
-int dmu_objset_rollback(const char *name);
+int dmu_objset_rollback(objset_t *os);
 int dmu_objset_snapshot(char *fsname, char *snapname, boolean_t recursive);
 int dmu_objset_find(char *name, int func(char *, void *), void *arg,
     int flags);
@@ -206,6 +205,7 @@ typedef void dmu_buf_evict_func_t(struct dmu_buf *db, void *user_ptr);
 #define	DMU_POOL_DEFLATE		"deflate"
 #define	DMU_POOL_HISTORY		"history"
 #define	DMU_POOL_PROPS			"pool_props"
+#define	DMU_POOL_L2CACHE		"l2cache"
 
 /*
  * Allocate an object from this objset.  The range of object numbers

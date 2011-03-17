@@ -1878,13 +1878,13 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 	for (zp = list_head(&zfsvfs->z_all_znodes); zp != &markerzp;
 	    zp = nextzp) {
 		nextzp = list_next(&zfsvfs->z_all_znodes, zp);
-		if (zp->z_dbuf_held) {
+		if (zp->z_dbuf) {
 			/* dbufs should only be held when force unmounting */
-			zp->z_dbuf_held = 0;
 			mutex_exit(&zfsvfs->z_znodes_lock);
 			dmu_buf_rele(zp->z_dbuf, NULL);
-			/* Start again */
+			zp->z_dbuf = NULL;
 			mutex_enter(&zfsvfs->z_znodes_lock);
+			/* Start again */
 			nextzp = list_head(&zfsvfs->z_all_znodes);
 		} else {
 			list_remove(&zfsvfs->z_all_znodes, zp);
@@ -1923,7 +1923,10 @@ zfsvfs_teardown(zfsvfs_t *zfsvfs, boolean_t unmounting)
 	/*
 	 * Evict cached data
 	 */
-	(void) dmu_objset_evict_dbufs(os);
+	if (dmu_objset_evict_dbufs(os)) {
+		txg_wait_synced(dmu_objset_pool(zfsvfs->z_os), 0);
+		(void) dmu_objset_evict_dbufs(os);
+	}
 
 	return (0);
 }
@@ -2595,7 +2598,6 @@ zfs_resume_fs(zfsvfs_t *zfsvfs, const char *osname, int mode)
 		mutex_enter(&zfsvfs->z_znodes_lock);
 		for (zp = list_head(&zfsvfs->z_all_znodes); zp;
 		    zp = list_next(&zfsvfs->z_all_znodes, zp)) {
-			ASSERT(!zp->z_dbuf_held);
 			(void) zfs_rezget(zp);
 		}
 		mutex_exit(&zfsvfs->z_znodes_lock);

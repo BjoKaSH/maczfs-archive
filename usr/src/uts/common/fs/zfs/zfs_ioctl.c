@@ -1025,23 +1025,30 @@ zfs_ioc_vdev_add(zfs_cmd_t *zc)
 {
 	spa_t *spa;
 	int error;
-	nvlist_t *config;
+	nvlist_t *config, **l2cache;
+	uint_t nl2cache;
 
 	error = spa_open(zc->zc_name, &spa, FTAG);
 	if (error != 0)
 		return (error);
 
+	error = get_nvlist(zc->zc_nvlist_conf, zc->zc_nvlist_conf_size,
+	    &config);
+	(void) nvlist_lookup_nvlist_array(config, ZPOOL_CONFIG_L2CACHE,
+	    &l2cache, &nl2cache);
+
 	/*
 	 * A root pool with concatenated devices is not supported.
 	 * Thus, can not add a device to a root pool with one device.
+	 * Allow for l2cache devices to be added.
 	 */
-	if (spa->spa_root_vdev->vdev_children == 1 && spa->spa_bootfs != 0) {
+	if (spa->spa_root_vdev->vdev_children == 1 && spa->spa_bootfs != 0 &&
+	    nl2cache == 0) {
 		spa_close(spa, FTAG);
 		return (EDOM);
 	}
 
-	if ((error = get_nvlist(zc->zc_nvlist_conf, zc->zc_nvlist_conf_size,
-	    &config)) == 0) {
+	if (error == 0) {
 		error = spa_vdev_add(spa, config);
 		nvlist_free(config);
 	}
@@ -2275,14 +2282,51 @@ zfs_ioc_destroy(zfs_cmd_t *zc)
 
 /*
  * inputs:
- * zc_name	name of snapshot to roll back to
+ * zc_name	name of dataset to rollback (to most recent snapshot)
  *
  * outputs:	none
  */
 static int
 zfs_ioc_rollback(zfs_cmd_t *zc)
 {
-	return (dmu_objset_rollback(zc->zc_name));
+	objset_t *os;
+	int error;
+	zfsvfs_t *zfsvfs = NULL;
+
+	/*
+	 * Get the zfsvfs for the receiving objset. There
+	 * won't be one if we're operating on a zvol, if the
+	 * objset doesn't exist yet, or is not mounted.
+	 */
+	error = dmu_objset_open(zc->zc_name, DMU_OST_ANY,
+	    DS_MODE_STANDARD, &os);
+	if (error)
+		return (error);
+
+	if (dmu_objset_type(os) == DMU_OST_ZFS) {
+		mutex_enter(&os->os->os_user_ptr_lock);
+		zfsvfs = dmu_objset_get_user(os);
+		if (zfsvfs != NULL)
+			VFS_HOLD(zfsvfs->z_vfs);
+		mutex_exit(&os->os->os_user_ptr_lock);
+	}
+
+	if (zfsvfs != NULL) {
+		char osname[MAXNAMELEN];
+		int mode;
+
+		VERIFY3U(0, ==, zfs_suspend_fs(zfsvfs, osname, &mode));
+		ASSERT(strcmp(osname, zc->zc_name) == 0);
+		error = dmu_objset_rollback(os);
+		VERIFY3U(0, ==, zfs_resume_fs(zfsvfs, osname, mode));
+
+		VFS_RELE(zfsvfs->z_vfs);
+	} else {
+		error = dmu_objset_rollback(os);
+	}
+	/* Note, the dmu_objset_rollback() closes the objset for us. */
+
+	return (error);
 }
 
 /*
@@ -2378,16 +2422,14 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 	 * objset doesn't exist yet, or is not mounted.
 	 */
 
-	error = dmu_objset_open(tofs, DMU_OST_ANY,
+	error = dmu_objset_open(tofs, DMU_OST_ZFS,
 	    DS_MODE_STANDARD | DS_MODE_READONLY, &os);
 	if (!error) {
-		if (dmu_objset_type(os) == DMU_OST_ZFS) {
-			mutex_enter(&os->os->os_user_ptr_lock);
-			zfsvfs = dmu_objset_get_user(os);
-			if (zfsvfs != NULL)
-				VFS_HOLD(zfsvfs->z_vfs);
-			mutex_exit(&os->os->os_user_ptr_lock);
-		}
+		mutex_enter(&os->os->os_user_ptr_lock);
+		zfsvfs = dmu_objset_get_user(os);
+		if (zfsvfs != NULL)
+			VFS_HOLD(zfsvfs->z_vfs);
+		mutex_exit(&os->os->os_user_ptr_lock);
 		dmu_objset_close(os);
 	}
 
@@ -2432,15 +2474,17 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 		}
 		if (error == 0) {
 			nvpair_t *elem;
-			zfs_cmd_t zc2 = { 0 };
+			zfs_cmd_t *zc2;
+			zc2 = kmem_alloc(sizeof (zfs_cmd_t), KM_SLEEP);
 
-			(void) strcpy(zc2.zc_name, tofs);
+			(void) strcpy(zc2->zc_name, tofs);
 			for (elem = nvlist_next_nvpair(nv, NULL); elem;
 			    elem = nvlist_next_nvpair(nv, elem)) {
-				(void) strcpy(zc2.zc_value, nvpair_name(elem));
-				if (zfs_secpolicy_inherit(&zc2, CRED()) == 0)
-					(void) zfs_ioc_inherit_prop(&zc2);
+				(void) strcpy(zc2->zc_value, nvpair_name(elem));
+				if (zfs_secpolicy_inherit(zc2, CRED()) == 0)
+					(void) zfs_ioc_inherit_prop(zc2);
 			}
+			kmem_free(zc2, sizeof (zfs_cmd_t));
 		}
 		if (nv)
 			nvlist_free(nv);
@@ -2652,9 +2696,26 @@ zfs_ioc_clear(zfs_cmd_t *zc)
 	if (zc->zc_guid == 0) {
 		vd = NULL;
 	} else if ((vd = spa_lookup_by_guid(spa, zc->zc_guid)) == NULL) {
-		(void) spa_vdev_exit(spa, NULL, txg, ENODEV);
-		spa_close(spa, FTAG);
-		return (ENODEV);
+		spa_aux_vdev_t *sav;
+		int i;
+
+		/*
+		 * Check if this is an l2cache device.
+		 */
+		ASSERT(spa != NULL);
+		sav = &spa->spa_l2cache;
+		for (i = 0; i < sav->sav_count; i++) {
+			if (sav->sav_vdevs[i]->vdev_guid == zc->zc_guid) {
+				vd = sav->sav_vdevs[i];
+				break;
+			}
+		}
+
+		if (vd == NULL) {
+			(void) spa_vdev_exit(spa, NULL, txg, ENODEV);
+			spa_close(spa, FTAG);
+			return (ENODEV);
+		}
 	}
 
 	vdev_clear(spa, vd, B_TRUE);

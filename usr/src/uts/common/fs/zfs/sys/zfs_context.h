@@ -64,6 +64,9 @@ extern "C" {
 #include <sys/types.h>
 #include <sys/param.h>
 
+// compatibility
+typedef uint64_t uint64;
+
 #ifdef _KERNEL
 #include <sys/systm.h>
 #include <sys/cmn_err.h>

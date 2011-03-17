@@ -124,12 +124,6 @@ extern vmem_t *zio_alloc_arena;
 	((zio)->io_orig_pipeline == ZIO_WRITE_PIPELINE ||		\
 	(zio)->io_pipeline & (1U << ZIO_STAGE_DVA_ALLOCATE))
 
-/*
- * The only way to tell is by looking for the gang pipeline stage
- */
-#define	IO_IS_REWRITE(zio)						\
-	((zio)->io_pipeline & (1U << ZIO_STAGE_GANG_PIPELINE))
-
 void
 zio_init(void)
 {
@@ -675,7 +669,7 @@ zio_ioctl(zio_t *pio, spa_t *spa, vdev_t *vd, int cmd,
 
 static void
 zio_phys_bp_init(vdev_t *vd, blkptr_t *bp, uint64_t offset, uint64_t size,
-    int checksum)
+    int checksum, boolean_t labels)
 {
 	ASSERT(vd->vdev_children == 0);
 
@@ -683,8 +677,12 @@ zio_phys_bp_init(vdev_t *vd, blkptr_t *bp, uint64_t offset, uint64_t size,
 	ASSERT(P2PHASE(size, SPA_MINBLOCKSIZE) == 0);
 	ASSERT(P2PHASE(offset, SPA_MINBLOCKSIZE) == 0);
 
-	ASSERT(offset + size <= VDEV_LABEL_START_SIZE ||
-	    offset >= vd->vdev_psize - VDEV_LABEL_END_SIZE);
+#ifdef ZFS_DEBUG
+	if (labels) {
+		ASSERT(offset + size <= VDEV_LABEL_START_SIZE ||
+		    offset >= vd->vdev_psize - VDEV_LABEL_END_SIZE);
+	}
+#endif
 	ASSERT3U(offset + size, <=, vd->vdev_psize);
 
 	BP_ZERO(bp);
@@ -703,14 +701,14 @@ zio_phys_bp_init(vdev_t *vd, blkptr_t *bp, uint64_t offset, uint64_t size,
 zio_t *
 zio_read_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
     void *data, int checksum, zio_done_func_t *done, void *private,
-    int priority, int flags)
+    int priority, int flags, boolean_t labels)
 {
 	zio_t *zio;
 	blkptr_t blk;
 
 	ZIO_ENTER(vd->vdev_spa);
 
-	zio_phys_bp_init(vd, &blk, offset, size, checksum);
+	zio_phys_bp_init(vd, &blk, offset, size, checksum, labels);
 
 	zio = zio_create(pio, vd->vdev_spa, 0, &blk, data, size, done, private,
 	    ZIO_TYPE_READ, priority, flags | ZIO_FLAG_PHYSICAL,
@@ -730,7 +728,7 @@ zio_read_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
 zio_t *
 zio_write_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
     void *data, int checksum, zio_done_func_t *done, void *private,
-    int priority, int flags)
+    int priority, int flags, boolean_t labels)
 {
 	zio_block_tail_t *zbt;
 	void *wbuf;
@@ -739,7 +737,7 @@ zio_write_phys(zio_t *pio, vdev_t *vd, uint64_t offset, uint64_t size,
 
 	ZIO_ENTER(vd->vdev_spa);
 
-	zio_phys_bp_init(vd, &blk, offset, size, checksum);
+	zio_phys_bp_init(vd, &blk, offset, size, checksum, labels);
 
 	zio = zio_create(pio, vd->vdev_spa, 0, &blk, data, size, done, private,
 	    ZIO_TYPE_WRITE, priority, flags | ZIO_FLAG_PHYSICAL,
@@ -938,12 +936,9 @@ zio_vdev_retry_io(zio_t *zio)
 
 	/*
 	 * We must zero out the old DVA and blk_birth before reallocating
-	 * the bp. We don't want to do this if this is a rewrite however.
+	 * the bp.
 	 */
-	if (!IO_IS_REWRITE(zio)) {
-		BP_ZERO_DVAS(zio->io_bp);
-	}
-
+	BP_ZERO_DVAS(zio->io_bp);
 	zio_reset(zio);
 
 	if (pio) {
@@ -1127,14 +1122,13 @@ zio_assess(zio_t *zio)
 		}
 
 		/*
-		 * If we are an allocating I/O or have been told to retry
-		 * then attempt to reissue the I/O on another vdev unless
-		 * the pool is out of space.  We handle this condition
-		 * based on the spa's failmode property.
+		 * If we are an allocating I/O then we attempt to reissue
+		 * the I/O on another vdev unless the pool is out of space.
+		 * We handle this condition based on the spa's failmode
+		 * property.
 		 */
 		if (zio_write_retry && zio->io_error != ENOSPC &&
-		    (IO_IS_ALLOCATING(zio) ||
-		    zio->io_flags & ZIO_FLAG_WRITE_RETRY)) {
+		    IO_IS_ALLOCATING(zio)) {
 			zio_vdev_retry_io(zio);
 			return;
 		}
@@ -1586,7 +1580,8 @@ zio_write_allocate_gang_members(zio_t *zio, metaslab_class_t *mc)
 			    zio->io_checksum, txg, gbp,
 			    (char *)zio->io_data + loff, lsize,
 			    zio_write_allocate_gang_member_done, NULL,
-			    zio->io_priority, zio->io_flags,
+			    zio->io_priority,
+			    zio->io_flags & ZIO_FLAG_GANG_INHERIT,
 			    &zio->io_bookmark));
 		} else {
 			lsize = P2ROUNDUP(resid / gbps_left, SPA_MINBLOCKSIZE);
@@ -1595,7 +1590,8 @@ zio_write_allocate_gang_members(zio_t *zio, metaslab_class_t *mc)
 			    zio->io_checksum, txg, gbp,
 			    (char *)zio->io_data + loff, lsize,
 			    zio_write_allocate_gang_member_done, NULL,
-			    zio->io_priority, zio->io_flags));
+			    zio->io_priority,
+			    zio->io_flags & ZIO_FLAG_GANG_INHERIT));
 		}
 	}
 
@@ -1641,8 +1637,7 @@ zio_dva_allocate(zio_t *zio)
 	/*
 	 * For testing purposes, we force I/Os to retry. We don't allow
 	 * retries beyond the first pass since those I/Os are non-allocating
-	 * writes. We do this after the gang block testing block so that
-	 * they don't inherit the retry flag.
+	 * writes.
 	 */
 	if (zio_io_fail_shift &&
 	    spa_sync_pass(zio->io_spa) <= zio_sync_pass.zp_rewrite &&

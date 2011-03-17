@@ -73,9 +73,8 @@ extern int zfs_dirlook(znode_t *, struct componentname *, vnode_t **, int, int *
 extern int zfs_dirlook(znode_t *, char *, vnode_t **, int, int *,
     pathname_t *);
 #endif
-extern void zfs_mknode(znode_t *, vattr_t *, uint64_t *,
-    dmu_tx_t *, cred_t *, uint_t, znode_t **, int,
-    zfs_acl_t *, zfs_fuid_info_t **);
+extern void zfs_mknode(znode_t *, vattr_t *, dmu_tx_t *, cred_t *,
+    uint_t, znode_t **, int, zfs_acl_t *, zfs_fuid_info_t **);
 extern void zfs_rmnode(znode_t *);
 extern void zfs_dl_name_switch(zfs_dirlock_t *dl, char *new, char **old);
 extern boolean_t zfs_dirempty(znode_t *);

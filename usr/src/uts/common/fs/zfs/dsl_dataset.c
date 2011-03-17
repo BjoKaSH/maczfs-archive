@@ -1764,17 +1764,17 @@ dsl_dataset_fast_stat(dsl_dataset_t *ds, dmu_objset_stats_t *stat)
 	}
 
 	/* clone origin is really a dsl_dir thing... */
+	rw_enter(&ds->ds_dir->dd_pool->dp_config_rwlock, RW_READER);
 	if (ds->ds_dir->dd_phys->dd_origin_obj) {
 		dsl_dataset_t *ods;
 
-		rw_enter(&ds->ds_dir->dd_pool->dp_config_rwlock, RW_READER);
 		VERIFY(0 == dsl_dataset_open_obj(ds->ds_dir->dd_pool,
 		    ds->ds_dir->dd_phys->dd_origin_obj,
 		    NULL, DS_MODE_NONE, FTAG, &ods));
 		dsl_dataset_name(ods, stat->dds_origin);
 		dsl_dataset_close(ods, DS_MODE_NONE, FTAG);
-		rw_exit(&ds->ds_dir->dd_pool->dp_config_rwlock);
 	}
+	rw_exit(&ds->ds_dir->dd_pool->dp_config_rwlock);
 }
 
 uint64_t
@@ -2348,6 +2348,9 @@ dsl_dataset_clone_swap_check(void *arg1, void *arg2, dmu_tx_t *tx)
 {
 	struct cloneswaparg *csa = arg1;
 
+	if (csa->ohds->ds_reserved != 0)
+		return (EINVAL);
+
 	/* they should both be heads */
 	if (dsl_dataset_is_snapshot(csa->cds) ||
 	    dsl_dataset_is_snapshot(csa->ohds))
@@ -2382,9 +2385,6 @@ dsl_dataset_clone_swap_sync(void *arg1, void *arg2, cred_t *cr, dmu_tx_t *tx)
 	blkptr_t bp;
 	uint64_t unique = 0;
 	int err;
-
-	if (csa->ohds->ds_reserved)
-		panic("refreservation and clone swap are incompatible");
 
 	dmu_buf_will_dirty(csa->cds->ds_dbuf, tx);
 	dmu_buf_will_dirty(csa->ohds->ds_dbuf, tx);
