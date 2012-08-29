@@ -1,0 +1,24 @@
+Credits
+=======
+
+Many people contributed to ZFS in general and to Mac OSX port MacZFS.  
+Those we know of are listed here:
+
+   The inventors and principal engineers of ZFS, at Sun Microsystems
+     * Jeff Bonwick and Matthew Ahrens, and their team 
+
+   ZFS on Mac OS, at Apple, Inc:
+     * Chris Emura, the Filesystem Development Manager within Apple's
+       CoreOS organization (cemura at apple.com)
+     * Don Brady, principal software engineer
+     * Noël Dellofano, software engineer
+
+   Contributors to the public MacZFS project
+     * Dustin Sallings: software engineer
+     * Jason R. McNeil: software engineer
+     * Björn Kahl: software engineer, documentation
+     * Alex Blewitt: software engineer, release engineer, documentation
+     * Daniel Bethe: webmaster, documentation
+     * Lucien Pullen: documentation
+     * Matthew Earlywine: launchd scripts
+     * KonaB1end: launchd scripts and hard core hacking
