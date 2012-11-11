@@ -256,12 +256,12 @@ unsigned short get_word_lcg(void) {
   if (lcg_bits_left >= 16) {
     res = lcg_bits;
     lcg_bits = lcg_bits >> 16;
-    lcg_bits -= 16;
+    lcg_bits_left -= 16;
   } else {
     /* we have only 8 bits left. */
     res = lcg_bits;
     res = res << 8;
-    lcg_bits = 0;
+    lcg_bits_left = 0;
     lcg_iterate();
     res |= get_byte_lcg();
   }
@@ -275,15 +275,15 @@ unsigned long get_long_lcg(void) {
     unsigned int res = lcg_bits;
     if (lcg_bits_left == 24) {
       res = res << 8;
-      lcg_bits = 0;
+      lcg_bits_left = 0;
       res |= get_byte_lcg();
     } else if (lcg_bits_left == 16) {
       res = res << 16;
-      lcg_bits = 0;
+      lcg_bits_left = 0;
       res |= get_word_lcg();
     } else {
       res = res << 16;
-      lcg_bits = 0;
+      lcg_bits_left = 0;
       res |= get_word_lcg();
       res = res << 8;
       res |= get_byte_lcg();
@@ -487,7 +487,7 @@ int main(int argc, char **argv) {
 			opt_count = atoll(optarg);
 			break;
 		case 'l':
-      opt_mode_size_bits = +16;  /* mode_size_bits is pre-initialized with 8 */
+      opt_mode_size_bits += 16;  /* mode_size_bits is pre-initialized with 8 */
       opt_mode_size_mask |= 0xffff0000;
       /* fall through */
 		case 'w':
