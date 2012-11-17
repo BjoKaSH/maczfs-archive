@@ -38,17 +38,17 @@ function make_disk() {
     local name=$2
 
     if [ -e ${diskstore}/${name}.sparsebundle ] ; then
-	echo "error, image path exists."
-	return 1
+        echo "error, image path exists."
+        return 1
     fi
 
     if [ $# -eq 3 ] ; then
-	# command with band size
-	echo "Warning: specifying band size unsupported and ignored"
-	hdiutil create -size ${size}g -layout GPTSPUD -partitionType ZFS -type SPARSEBUNDLE ${diskstore}/${name}.sparsebundle
+        # command with band size
+        echo "Warning: specifying band size unsupported and ignored"
+        hdiutil create -size ${size}g -layout GPTSPUD -partitionType ZFS -type SPARSEBUNDLE ${diskstore}/${name}.sparsebundle
     else
-	# command w/o band size
-	hdiutil create -size ${size}g -layout GPTSPUD -partitionType ZFS -type SPARSEBUNDLE ${diskstore}/${name}.sparsebundle
+        # command w/o band size
+        hdiutil create -size ${size}g -layout GPTSPUD -partitionType ZFS -type SPARSEBUNDLE ${diskstore}/${name}.sparsebundle
     fi
 
     eval ${name}_attached=0
@@ -72,19 +72,19 @@ function new_temp_file() {
     local res=0
 
     if [ -z "${1:-}" ] ; then
-	tmp=$(mktemp -t mzt.XXXXXX)
+        tmp=$(mktemp -t mzt.XXXXXX)
     else
-	shift
-	base="$2"
-	shift
-	tmp=$(mktemp ${base}/mzt.XXXXXX)
+        shift
+        base="$2"
+        shift
+        tmp=$(mktemp ${base}/mzt.XXXXXX)
     fi
     res=$?
 
     if [ -z "${base}" ] ; then
-	echo ${tmp}
+        echo ${tmp}
     else
-	basename ${tmp}
+        basename ${tmp}
     fi
 
     return ${res}
@@ -104,119 +104,119 @@ function run_cmd() {
 
     while [ $# -gt 0 -a ${usage_err} -eq 0 -a "${1:0:2}" == "--" ] ; do
 
-	if [ "${1}" == "--outname" ] ; then
-	    if [ "${outmode}" != "0" ] ; then
-		usage_err=1
-		break;
-	    fi
-	    outmode=1
-	    shift
-	    outname="$1"
-	    shift
-	    continue
-	fi
+    if [ "${1}" == "--outname" ] ; then
+        if [ "${outmode}" != "0" ] ; then
+            usage_err=1
+            break;
+        fi
+        outmode=1
+        shift
+        outname="$1"
+        shift
+        continue
+    fi
 
-	if [ "${1}" == "--outarray" ] ; then
-	    if [ "${outmode}" != "0" ] ; then
-		usage_err=1
-		break;
-	    fi
-	    outmode=2
-	    shift
-	    outname="$1"
-	    shift
-	    continue
-	fi
+    if [ "${1}" == "--outarray" ] ; then
+        if [ "${outmode}" != "0" ] ; then
+            usage_err=1
+            break;
+        fi
+        outmode=2
+        shift
+        outname="$1"
+        shift
+        continue
+    fi
 
-	if [ "${1}" == "--errname" ] ; then
-	    if [ "${errmode}" != "0" ] ; then
-		usage_err=1
-		break;
-	    fi
-	    errmode=1
-	    shift
-	    errname="$1"
-	    shift
-	    continue
-	fi
+    if [ "${1}" == "--errname" ] ; then
+        if [ "${errmode}" != "0" ] ; then
+            usage_err=1
+            break;
+        fi
+        errmode=1
+        shift
+        errname="$1"
+        shift
+        continue
+    fi
 
-	if [ "${1}" == "--errarray" ] ; then
-	    if [ "${errmode}" != "0" ] ; then
-		usage_err=1
-		break;
-	    fi
-	    errmode=2
-	    shift
-	    errname="$1"
-	    shift
-	    continue
-	fi
+    if [ "${1}" == "--errarray" ] ; then
+        if [ "${errmode}" != "0" ] ; then
+            usage_err=1
+            break;
+        fi
+        errmode=2
+        shift
+        errname="$1"
+        shift
+        continue
+    fi
 
-	if [ "${1:0:2}" == "--" ] ; then
-	    usage_err=1
-	    break;
-	else
-	    break;
-	fi
+    if [ "${1:0:2}" == "--" ] ; then
+        usage_err=1
+        break;
+    else
+        break;
+    fi
     done
 
     if [ ${usage_err} -ne 0 ] ; then
-	echo "$0 : error: bad arguments" 1>&2
-	return 1
+        echo "$0 : error: bad arguments" 1>&2
+        return 1
     fi
 
     if [ ${outmode} -eq 1 ] ; then
-	# capture to file
-	outfile="${outname}"
+        # capture to file
+        outfile="${outname}"
     elif [ ${outmode} -eq 2 ] ; then
-	# capture to array -> need new temporary file
-	outfile=$(new_temp_file)
+        # capture to array -> need new temporary file
+        outfile=$(new_temp_file)
     fi
 
     if [ ${errmode} -eq 1 ] ; then
-	# capture to file
-	errfile="${errname}"
+        # capture to file
+        errfile="${errname}"
     elif [ ${errmode} -eq 2 ] ; then
-	# capture to array -> need new temporary file
-	errfile=$(new_temp_file)
+        # capture to array -> need new temporary file
+        errfile=$(new_temp_file)
     fi
 
     if [ "${outmode}" == "0" ] ; then
-	if [ "${errmode}" == "0" ] ; then
-	    "$@"
-	    retval=$?
-	else
-	    "$@" 2>"${errfile}"
-	    retval=$?
-	fi
+        if [ "${errmode}" == "0" ] ; then
+            "$@"
+            retval=$?
+        else
+            "$@" 2>"${errfile}"
+            retval=$?
+        fi
     else
-	if [ "${errmode}" == "0" ] ; then
-	    "$@" >"${outfile}"
-	    retval=$?
-	else
-	    "$@" >"${outfile}" 2>"${errfile}"
-	    retval=$?
-	fi
+        if [ "${errmode}" == "0" ] ; then
+            "$@" >"${outfile}"
+            retval=$?
+        else
+            "$@" >"${outfile}" 2>"${errfile}"
+            retval=$?
+        fi
     fi
 
     if [ ${outmode} -eq 2 ] ; then
-	# array
-	idx=0
-	while read n <${outfile} ; do
-	    eval ${outname}[$idx]=\"\$n\"
-	    ((idx++))
-	done
-	rm ${outfile}
+        # array
+        idx=0
+        while read n <${outfile} ; do
+            eval ${outname}[$idx]=\"\$n\"
+            ((idx++))
+        done
+        rm ${outfile}
     fi
 
     if [ ${errmode} -eq 2 ] ; then
-	# array
-	idx=0
-	while read n <${errfile} ; do
-	    eval ${errname}[$idx]=\"\$n\"
-	    ((idx++))
-	done
-	rm ${errfile}
+        # array
+        idx=0
+        while read n <${errfile} ; do
+            eval ${errname}[$idx]=\"\$n\"
+            ((idx++))
+        done
+        rm ${errfile}
     fi
 
     return ${retval}
@@ -238,23 +238,23 @@ function attach_disk() {
     local outfile=""
 
     if [ ${attached} -eq 1 ] ; then
-	echo "$0 : warning: disk '${name}' already attached."
-	return 1
+        echo "$0 : warning: disk '${name}' already attached."
+        return 1
     fi
 
     outfile=$(new_temp_file) 
     run_cmd --outname ${outfile} hdiutil attach -nomount ${diskpath}
 
     if [ $? -ne 0 ] ; then
-	echo "Disk attach failed. "
-	return 1
+        echo "Disk attach failed. "
+        return 1
     fi
 
     # find out device node(s)
     tmpdiskval=$(grep -e '^/dev/disk[0-9]\+[[:space:]]' <${outfile})
     if [ -z "${tmpdiskval}" ] ; then
-	echo "Could not find device info"
-	return 1
+        echo "Could not find device info"
+        return 1
     fi
 
     eval ${name}_disk=\"\$\{tmpdiskval%% \*\}\"
@@ -280,21 +280,21 @@ function detach_disk() {
     local outfile=""
 
     if [ ${attached} -eq 0 ] ; then
-	echo "$0 : warning: disk '${name}' not attached."
-	return 1
+        echo "$0 : warning: disk '${name}' not attached."
+        return 1
     fi
 
     if [ -z "${disk}" ] ;  then
-	echo "Warning: disk node for '${name}' not known."
-	return 1
+        echo "Warning: disk node for '${name}' not known."
+        return 1
     fi
 
     outfile=$(new_temp_file) 
     run_cmd --outname ${outfile} hdiutil detach ${disk}
 
     if [ $? -ne 0 ] ; then
-	echo "Disk detach failed. "
-	return 1
+        echo "Disk detach failed. "
+        return 1
     fi
 
     eval ${name}_disk=\'\'
@@ -321,24 +321,24 @@ function partion_disk() {
     local disk=${!disk_v}
 
     if [ -z "${diskpath}" ] ; then
-	echo "$0 disk image not found" 1>&2
-	return 1
+        echo "$0 disk image not found" 1>&2
+        return 1
     fi
 
     if hdiutil info | grep -e "${diskpath}" ; then
-	# should be attached
-	was_attached=1
+        # should be attached
+        was_attached=1
     else
-	# not attached.  Try and get the first and last band, and destroy
-	# them, so the following attach will not trigger a mount or an import
-	bandN=$(find_bands ${name} last)
-	if [ -f "${diskpath}/bands/0" ] ; then
-	    rm "${diskpath}/bands/0"
-	fi
-	if [ ! -z "${bandN}" ] ; then
-	    rm "${diskpath}/bands/${bandN}"
-	fi
-	attach_disk ${name}
+        # not attached.  Try and get the first and last band, and destroy
+        # them, so the following attach will not trigger a mount or an import
+        bandN=$(find_bands ${name} last)
+        if [ -f "${diskpath}/bands/0" ] ; then
+            rm "${diskpath}/bands/0"
+        fi
+        if [ ! -z "${bandN}" ] ; then
+            rm "${diskpath}/bands/${bandN}"
+        fi
+        attach_disk ${name}
     fi
 
     gpt create /dev/${disk} 
@@ -348,7 +348,7 @@ function partion_disk() {
     gpt label -i 2 -l "ZFS"  /dev/${disk}
 
     if [ ${was_attached} -eq 0 ] ; then
-	detach_disk ${name}
+        detach_disk ${name}
     fi
 }
 
@@ -376,13 +376,13 @@ function run_cmd_log() {
 # args:
 function print_run_cmd_logs() {
     if [ -s ${tests_logdir}/test_${curtest}.out ] ; then
-	echo "out:"
-	gawk '{print " | " $0;}' <${tests_logdir}/test_${curtest}.out
+        echo "out:"
+        gawk '{print " | " $0;}' <${tests_logdir}/test_${curtest}.out
     fi
 
     if [ -s ${tests_logdir}/test_${curtest}.err ] ; then
-	echo "err:"
-	gawk '{print " | " $0;}' <${tests_logdir}/test_${curtest}.err
+        echo "err:"
+        gawk '{print " | " $0;}' <${tests_logdir}/test_${curtest}.err
     fi
 }
 
@@ -397,11 +397,11 @@ function print_run_cmd_logs() {
 # failcnt : incremented by 1, if argument is not 0
 function print_count_ok_fail() {
     if [ $1 -eq 0 ] ; then
-	echo "ok (${curtest}/${tottests})"
-	((okcnt++))
+        echo "ok (${curtest}/${tottests})"
+        ((okcnt++))
     else
-	echo "fail (${curtest}/${tottests})"
-	((failcnt++))
+        echo "fail (${curtest}/${tottests})"
+        ((failcnt++))
     fi
 }
 
@@ -429,22 +429,22 @@ function run_ret() {
     shift
 
     if [ -z "${message}" ] ; then
-	run_cmd "$@"
-	retval=$?
+        run_cmd "$@"
+        retval=$?
     else
-	echo -n "${message}"
-	echo -n -e "\t "
+        echo -n "${message}"
+        echo -n -e "\t "
 
-	run_cmd_log "$@"
-	retval=$?
+        run_cmd_log "$@"
+        retval=$?
 
-	if [ ${retval} -eq ${exp_ret} ] ; then
-	    print_count_ok_fail 0
-	else
-	    print_count_ok_fail 1
-	fi
+        if [ ${retval} -eq ${exp_ret} ] ; then
+            print_count_ok_fail 0
+        else
+            print_count_ok_fail 1
+        fi
 
-	print_run_cmd_logs
+        print_run_cmd_logs
     fi
 
     last_cmd_retval=${retval}
@@ -452,7 +452,7 @@ function run_ret() {
     retval=$?
 
     if [ ${stop_on_fail} -eq 1 -a ${retval} -ne 0 ] ; then
-	exit 1
+        exit 1
     fi
 
     return ${retval}
@@ -471,8 +471,8 @@ function run_abort() {
     retval=$?
 
     if [ $retval -ne ${exp_ret} ] ; then
-	echo "command '$*' returned ${retval}, expected ${exp_ret}.  Abort."
-	exit 1
+        echo "command '$*' returned ${retval}, expected ${exp_ret}.  Abort."
+        exit 1
     fi
 
     return 0
@@ -494,17 +494,17 @@ function run_check_regex() {
     shift
     shift
     if [ "$1" == "-n" ] ; then 
-	negate=1
-	isfail=0
-	shift
+        negate=1
+        isfail=0
+        shift
     fi
 
     regex="$1"
     shift
 
     if [ ! -z "${message}" ] ; then
-	echo -n "${message}"
-	echo -n -e "\t "
+        echo -n "${message}"
+        echo -n -e "\t "
     fi
 
     run_cmd_log "$@"
@@ -512,20 +512,20 @@ function run_check_regex() {
     last_cmd_retval=${retval}
 
     if [ ${exp_ret} -ne ${retval} ] ; then
-	isfail=1
+        isfail=1
     else
-	if grep -e "${regex}" <${tests_logdir}/test_${curtest}.out >/dev/null ; then
-	    isfail=${negate}
-	fi
+        if grep -e "${regex}" <${tests_logdir}/test_${curtest}.out >/dev/null ; then
+            isfail=${negate}
+        fi
     fi
     
     if [ ! -z "${message}" ] ; then
-	print_count_ok_fail ${isfail}
-	print_run_cmd_logs
+        print_count_ok_fail ${isfail}
+        print_run_cmd_logs
     fi
 
     if [ ${stop_on_fail} -eq 1 -a ${isfail} -ne 0 ] ; then
-	exit 1
+        exit 1
     fi
 
     return ${isfail}
