@@ -3,7 +3,7 @@
 ### list of functions ###
 #
 # make_disk size_in_gb name [ band size ]
-# globals: ${name}_attached, ${name}_disk, ${name}_size, ${name}_path
+# globals: disk_${name}_attached, disk_${name}_disk, disk_${name}_size, disk_${name}_path
 #
 # new_temp_file [ -p ]
 # stdout: filename, with path if "-p" given.
@@ -13,7 +13,7 @@
 # globals: pool_${poolname}_opt, pool_${poolname}_path, pool_${poolname}_vdevs, pool_${poolname}_fullname
 #
 # make_fs fsname [ -o option=value [ -o ... ] ]
-# globals: pool_${fsname_tr}_opt=, pool_${fsname_tr}_path, pool_${fsname_tr}_name, pool_${fsname_tr}_fullname
+# globals: fs_${fsname_tr}_opt=, fs_${fsname_tr}_path, fs_${fsname_tr}_name, fs_${fsname_tr}_fullname
 #
 # make_file [ -c comp_factor ] size pool file
 # globals: file_${file}_size, file_${file}_pool, file_${file}_path, file_${file}_name
@@ -22,30 +22,48 @@
 # retval: return code of executed command
 #
 # attach_disk diskname
-# globals: ${diskname}_attached, ${diskname}_disk
+# globals: disk_${diskname}_attached, disk_${diskname}_disk
 #
 # detach_disk diskname
-# globals: ${diskname}_attached, ${diskname}_disk
+# globals: disk_${diskname}_attached, disk_${diskname}_disk
 #
 # partion_disk diskname
-# globals: ${diskname}_attached, ${diskname}_disk
+# globals: disk_${diskname}_attached, disk_${diskname}_disk
 #
 # run_ret expected_retval comment cammand [ args ... ]
 # return: 0 or 1
 # globals: last_cmd_retval
 
+if [ -z "${tests_func_init_arr}" ] ; then
+poolsmax=0
+pools[0]=''
+fssmax=0
+fss[0]=''
+filesmax=0
+files[0]=''
+disksmax=0
+disks=''
+
+tests_func_init_arr=1
+fi
 
 # create a new disk image
 # args:
 # size_in_gb disk_name [ band size ]
 # globals:
-# ${name}_attached # 1 if attached, else 0
-# ${name}_disk     # device name of disk if attached, else '' 
-# ${name}_size     # size in GB
-# ${name}_path     # path to sparse bundle directory
+# disk_${name}_attached # 1 if attached, else 0
+# disk_${name}_disk     # device name of disk if attached, else '' 
+# disk_${name}_size     # size in GB
+# disk_${name}_path     # path to sparse bundle directory
 function make_disk() {
     local size=$1
     local name=$2
+    local res=0
+    
+    if [ "$1" == "-h" ] ; then
+        echo "size_in_gb disk_name [ band size ]"
+        return 0
+    fi
 
     if [ -e ${diskstore}/${name}.sparsebundle ] ; then
         echo "error, image path exists."
@@ -56,15 +74,43 @@ function make_disk() {
         # command with band size
         echo "Warning: specifying band size unsupported and ignored"
         hdiutil create -size ${size}g -layout GPTSPUD -partitionType ZFS -type SPARSEBUNDLE ${diskstore}/${name}.sparsebundle
+        res=$?
     else
         # command w/o band size
         hdiutil create -size ${size}g -layout GPTSPUD -partitionType ZFS -type SPARSEBUNDLE ${diskstore}/${name}.sparsebundle
+        res=$?
     fi
 
-    eval ${name}_attached=0
-    eval ${name}_disk=\'\'
-    eval ${name}_size=${size}
-    eval ${name}_path=\"${diskstore}/${name}.sparsebundle\"
+    eval disk_${name}_attached=0
+    eval disk_${name}_disk=\'\'
+    eval disk_${name}_size=${size}
+    eval disk_${name}_path=\"${diskstore}/${name}.sparsebundle\"
+    eval disk_${name}_idx=0
+
+    if [ ${res} -eq 0 ] ; then
+        disks[${disksmax}]=${name}
+        eval disk_${name}_idx=${disksmax}
+        ((disksmax++))
+    fi
+
+    return ${res}
+}
+
+
+# show all defined disk images
+function list_disks() {
+    local i
+    local name
+    
+    for ((i=0; i < disksmax; i++)) ; do
+        if [ "${disks[i]}" == "" ] ; then
+            continue
+        fi
+        name="${disks[i]}"
+        echo "Disk '${name}'"
+        print_object disk "${name}" path size attached disk
+        echo
+    done
 }
 
 
@@ -80,6 +126,11 @@ function new_temp_file() {
     local tmp=""
     local base=""
     local res=0
+
+    if [ "$1" == "-h" ] ; then
+        echo "[ -p base ]"
+        return 0
+    fi
 
     if [ -z "${1:-}" ] ; then
         tmp=$(mktemp -t mzt.XXXXXX)
@@ -110,11 +161,21 @@ function new_temp_file() {
 # pool_${poolname}_path=     : full path to pool filesystem
 # pool_${poolname}_vdevs=... : vdev specification used
 # poolbase : prefix for all pools.
+# pools[] : list of all test pools
+# poolsmax : highest used index in pools[]
 function make_pool() {
     local opt=""
     local poolpath=""
     local poolname="${1}"
     local poolfullname="${poolbase}_${poolname}"
+    local res=0
+    local i=''
+    local realvdevs=''
+
+    if [ "$1" == "-h" ] ; then
+        echo "poolname [ -o option=value [ -o ... ] ] vdevs ..."
+        return 0
+    fi
 
     shift
     while [ "$1" == "-o" ] ; do
@@ -126,8 +187,55 @@ function make_pool() {
     eval pool_${poolname}_fullname="\"\${poolfullname}\""
     eval pool_${poolname}_path="\"/Volumes/\${poolfullname}\""
     eval pool_${poolname}_vdevs="\"\$*\""
+    
+    for i in $* ; do
+        tmp=${i%%:*}
+        disk_v=disk_${tmp//\//_}_idx
+        if [ -z "${!disk_v}" ] ; then
+            realvdevs="${realvdevs} $i"
+        else
+            disk_v=disk_${tmp//\//_}_disk
+            tmp=${!disk_v}
+            if [ ! -z "${i##*:}" ] ; then
+                tmp="${tmp}s${i##*:}"
+            fi
+            realvdevs="${realvdevs} $tmp"
+        fi
+    done
+    eval pool_${poolname}_realvdevs="\"\${realvdevs}\""
 
-    zpool create ${opt} ${poolname} $*
+    zpool create ${opt} ${poolname} ${realvdevs}
+    res=$?
+    if [ ${res} -eq 0 ] ; then
+        pools[${poolsmax}]=$poolname
+        eval pool_${poolname}_idx=${poolsmax}
+        ((poolsmax++))
+
+        eval fs_${fsname_tr}_opt=""
+        eval fs_${fsname_tr}_name="\"\${poolname}\""
+        eval fs_${fsname_tr}_fullname="\"\${poolfullname}\""
+        eval fs_${fsname_tr}_path="\"/Volumes/\${poolfullname}\""
+        eval fs_${fsname_tr}_pool="\"\${poolname}\""
+    fi
+
+    return ${res}
+}
+
+
+# show all defined pools
+function list_pools() {
+    local i
+    local name
+
+    for ((i=0; i < poolsmax; i++)) ; do
+        if [ "${pools[i]}" == "" ] ; then
+            continue
+        fi
+        name="${pools[i]}"
+        echo "Pool '${name}'"
+        print_object pool "${name}" fullname path opt vdevs
+        echo
+    done
 }
 
 
@@ -136,10 +244,11 @@ function make_pool() {
 # fsname [ -o option=value [ -o ... ] ]
 # globals:
 # (fsname_tr is fsname, but with "/" mapped to "_")
-# pool_${fsname_tr}_opt=...  : options used
-# pool_${fsname_tr}_path=    : full path to zfs filesystem
-# pool_${fsname_tr}_name=... : original file system name ${fsname}
-# pool_${fsname_tr}_fullname= : zfs filesystem name with full pool prefix
+# fs_${fsname_tr}_opt=...  : options used
+# fs_${fsname_tr}_path=    : full path to zfs filesystem
+# fs_${fsname_tr}_name=... : original file system name ${fsname}
+# fs_${fsname_tr}_fullname= : zfs filesystem name with full pool prefix
+# fs_${fsname_tr}_pool=    : name of pool
 function make_fs() {
     local opt=""
     local fspath=""
@@ -147,9 +256,14 @@ function make_fs() {
     local fsname_tr="${fsname//\//_}"
     local fsfullname=""
 
+    if [ "$1" == "-h" ] ; then
+        echo "fsname [ -o option=value [ -o ... ] ]"
+        return 0
+    fi
+
     # if fsname and fsname_tr are identical, then we have only the pool fs itself, which is forbidden.
     if [ "${fsname}" == "${fsname_tr}" ] ; then
-        echo "Error: make_fs() requires at least one "/" in the fs name"
+        echo "Error: make_fs() requires at least one '/' in the fs name"
         return 1
     fi
     fsfullname=${poolbase}_${fsname}
@@ -160,38 +274,73 @@ function make_fs() {
         opt="${opt} $1"
         shift
     done
-    eval pool_${fsname_tr}_opt="\"\${opt}\""
-    eval pool_${fsname_tr}_name="\"\${fsname}\""
-    eval pool_${fsname_tr}_fullname="\"\${fsfullname}\""
-    eval pool_${fsname_tr}_path="\"/Volumes/\${poolfullname}\""
+    eval fs_${fsname_tr}_opt="\"\${opt}\""
+    eval fs_${fsname_tr}_name="\"\${fsname}\""
+    eval fs_${fsname_tr}_fullname="\"\${fsfullname}\""
+    eval fs_${fsname_tr}_path="\"/Volumes/\${fsfullname}\""
+    eval fs_${fsname_tr}_pool="\"\${fsname%%/\*}\""
 
     zfs create ${opt} ${fsname}
+
+    res=$?
+    
+    if [ ${res} -eq 0 ] ; then
+        fss[${fssmax}]=${fsname_tr}
+        eval fs_${fsname_tr}_idx=${fssmax}
+        ((fssmax++))
+    fi
+
+    return ${res}
+}
+
+
+# show all defined file systems
+function list_fss() {
+    local i
+    local name
+
+    for ((i=0; i < fssmax; i++)) ; do
+        if [ "${fss[i]}" == "" ] ; then
+            continue
+        fi
+        name="${fss[i]}"
+        echo "FS '${name}'"
+        print_object fs "${name}" name fullname path pool opt
+        echo
+    done
 }
 
 
 # create a (temporary) file of given size
 # args:
-# [ -c comp_factor ] size pool file
+# [ -c comp_factor ] size fs file
 # -c comp_factor : try to make the file contents compressible by factor comp_factor
 # size  : size of file in bytes, optionaly with multiplier "m" or "k", example: 8m
-# pool  : zfs filesystem to place file in.  if special name _temp_ is used, then place file in ${TMPDIR}
+# fs    : zfs filesystem to place file in.  if special name _temp_ is used, then place file in ${TMPDIR}
 # file  : filename (optionally with path prefix) relative to zfs filesystem
 # globals:
 # file_${file}_size = size of file
-# file_${file}_pool = zfs filessystem
+# file_${file}_fs = zfs filessystem
 # file_${file}_name = original file name
 # file_${file}_path = full path to file, starting at "/"
-# pool_${pool}_path : path to zfs filesystem
+# fs_${fs}_path : path to zfs filesystem
+# files[] : list of all created files
+# filesmax : index into files[]
 function make_file() {
     local filename=""
     local filename_tr=""
     local size=""
-    local pool=""
+    local fs=""
     local filepath=""
     local compfact=0
     local count=0
     local sizeflag=""
-    local poolpath_v=""
+    local fspath_v=""
+
+    if [ "$1" == "-h" ] ; then
+        echo "[ -c comp_factor ] size fs file"
+        return 0
+    fi
 
     if [ "${1}" == "-c" ] ; then
         shift
@@ -200,31 +349,31 @@ function make_file() {
     fi
 
     size=${1}
-    pool=${2}
+    fs=${2}
     filename=${3}
     filename_tr=${filename//\//_}
     
     if [ "${size: -1:1}" == "m" ] ; then
         # 1m bytes makes 1024*256 longs
         count=$((${size%m}*1024*256))
-        size=$((${count*4}))
-        sizeflag=-m
+        size=$((${count}*4))
+        sizeflag=-l
     elif [ "${size: -1:1}" == "k" ] ; then
         # 1k bytes makes 256 longs
         count=$((${size%k}*256))
-        size=$((${count*4}))
-        sizeflag=-m
+        size=$((${count}*4))
+        sizeflag=-l
     else
         # size is given in bytes
         count=${size}
         sizeflag=""
     fi
 
-    if [ "${pool}" == "_temp_" ] ; then
+    if [ "${fs}" == "_temp_" ] ; then
         filepath=$(new_temp_file)
     else
-        poolpath_v=pool_${pool//\//_}_path
-        filepath=${!poolpath_v}/${filename}
+        fspath_v=fs_${fs//\//_}_path
+        filepath=${!fspath_v}/${filename}
     fi
     filedir=$(dirname ${filepath})
     if [ ! -e ${filedir} ] ; then
@@ -244,16 +393,187 @@ function make_file() {
     
     if [ $res -eq 0 ] ; then
         eval file_${filename_tr}_size=${size}
-        eval file_${filename_tr}_pool=${pool}
+        eval file_${filename_tr}_fs=${fs}
         eval file_${filename_tr}_name=${filename}
         eval file_${filename_tr}_path=${filepath}
+
+        files[${filesmax}]=${filename_tr}
+        eval file_${filename_tr}_idx=${filesmax}
+        ((filesmax++))
     else
         echo "Error: generating file ${filepath} (${filename}) failed"
     fi
-    
+
     return $res
 }
 
+
+# show all defined files
+function list_files() {
+    local i
+    local name
+
+    for ((i=0; i < filesmax; i++)) ; do
+        if [ "${files[i]}" == "" ] ; then
+            continue
+        fi
+        name="${files[i]}"
+        echo "File '${name}'"
+        print_object file "${name}" name path fs size
+        echo
+    done
+}
+
+
+# add existing file
+# args:
+# filename
+# filename  : filename with absolute path
+# globals:
+# file_${file}_size = size of file
+# file_${file}_pool = zfs filessystem
+# file_${file}_name = original file name
+# file_${file}_path = full path to file, starting at "/"
+# pool_${pool}_path : path to zfs filesystem
+function add_file() {
+    if [ "$1" == "-h" ] ; then
+        echo "filename"
+        echo "(unimplemented)"
+        return 0
+    fi
+
+    echo "add_file():  unimplemented."
+    exit 1
+}
+
+
+# copy existing file
+# args:
+# src-file target-fs dest-file
+# src-file : filename as given to make_file
+# target-fs : zfs filesystem to place file in, as from make_fs
+# dest-file : name of new file, including path relative to file-system
+function copy_file() {
+    local srcname=""
+    local srcname_tr=""
+    local srcpath=""
+    local destname=""
+    local destname_tr=""
+    local fs="${2}"
+    local fs_tr=""
+    local destpath=""
+    local srcidx=0
+    local destidx=0
+    local name_v=''
+
+    if [ "$1" == "-h" ] ; then
+        echo "src-file target-fs dest-file"
+        return 0
+    fi
+
+    srcname=${1}
+    srcname_tr=${srcname//\//_}
+
+    destname=${3}
+    destname_tr=${destname//\//_}
+    
+    if [ "${srcname_tr}" == "${destname_tr}" ] ; then
+        echo "Error: test system limitation: can't have to files with same name in different file systems."
+        return 1
+    fi
+
+    for ((srcidx=0; srcidx < filesmax; srcidx++)) ; do
+        if [ "${files[${srcidx}]}" == "${srcname_tr}" ] ; then
+            break
+        fi
+    done
+    
+    if [ ${srcidx} -eq ${filesmax} ] ; then
+        echo "copy_file(): Nothing known about '${srcname}'."
+        return 1
+    fi
+
+    name_v=file_${srcname_tr}_path
+    srcpath=${!name_v}
+
+    for ((destidx=0; destidx < filesmax; destidx++)) ; do
+        if [ "${files[${destidx}]}" == "${destname_tr}" ] ; then
+            break
+        fi
+    done
+    
+    fs_tr=${fs//\//_}
+    name_v=fs_${fs_tr}_path
+    destpath="${!name_v}/${destname}"
+
+    cp "${srcpath}" "${destpath}"
+    res=$?
+
+    if [ $res -eq 0 ] ; then
+        name_v=file_${srcname_tr}_size
+        eval file_${destname_tr}_size=${!name_v}
+        eval file_${destname_tr}_fs=${fs}
+        eval file_${destname_tr}_name=${destname}
+        eval file_${destname_tr}_path=${destpath}
+
+        files[${destidx}]=${destname_tr}
+        eval file_${destname_tr}_idx=${destidx}
+    else
+        echo "Error: generating file ${filepath} (${filename}) failed"
+    fi
+
+    if [ ${destidx} -eq ${filesmax} ] ; then
+        ((filessmax++))
+    fi
+
+    return $res
+}
+
+
+# remove (delete) file creaed by make_file()
+# args:
+# filename
+# filename : file name as given to make_file().  The actual path is
+#    read from file_${file}_path, see make_file().
+function remove_file() {
+    local filename=""
+    local filename_tr=""
+    local filepath=""
+    local filepath_v=''
+    local fileidx=0
+
+    if [ "$1" == "-h" ] ; then
+        echo "filename"
+        return 0
+    fi
+
+    filename=${1}
+    filename_tr=${filename//\//_}
+
+    for ((fileidx=0; fileidx < filesmax; fileidx++)) ; do
+        if [ "${files[${fileidx}]}" == "${filename_tr}" ] ; then
+            break
+        fi
+    done
+    
+    if [ ${fileidx} -eq ${filesmax} ] ; then
+        echo "remove_file(): Nothing known about '${filename}'."
+        return 1
+    fi
+
+    filepath_v=file_${filename_tr}_path
+    filepath="${!filepath_v}"
+
+    rm -i "${filepath}"
+    res=$?
+    if [ ${res} -eq 0 ] ; then
+        files[${fileidx}]=''
+    else
+        echo "remove_file(): unlink failed"
+    fi
+
+    return ${res}
+}
 
 # determine file statistics and store result in the array destvar as
 # well as in individual variables ${destvar}_*
@@ -282,6 +602,11 @@ function get_file_stats() {
     local filename=$2
     local filepath_v=file_${filename//\//_}_path
     local filepath=${!filepath_v}
+
+    if [ "$1" == "-h" ] ; then
+        echo "destvar file"
+        return 0
+    fi
 
     if [ ! -e "${filepath}" ] ; then
         echo "Error: file '${filepath}' does not exists."
@@ -330,10 +655,10 @@ function get_file_stats() {
 # fs : file name to use.  the actual path is read from
 #    file_${file}_path, see make_file().
 # globals:
-# ${destvar}_pool   = derived from pool_${fs}_name
-# ${destvar}_name   = copied from pool_${fs}_name
-# ${destvar}_fullname = copied from pool_${fs}_fullname
-# ${destvar}_path   = copied from pool_${fs}_path
+# ${destvar}_pool   = copied from fs_${fs}_pool
+# ${destvar}_name   = copied from fs_${fs}_name
+# ${destvar}_fullname = copied from fs_${fs}_fullname
+# ${destvar}_path   = copied from fs_${fs}_path
 # ${destvar}_size   = pool size, from zpool list
 # ${destvar}_alloc  = allocated space in pool, from zpool list
 # ${destvar}_free   = free space in pool, from zpool list
@@ -348,16 +673,23 @@ function get_fs_stats() {
     local destvar=$1
     local fs=$2
     local fs_tr=${fs//\//_}
-    local pool=${fs%%/*}
-    local tmp_v=pool_${fs_tr}_fullname
+    local tmp_v=fs_${fs_tr}_pool
+    local pool=${!tmp_v}
+    tmp_v=fs_${fs_tr}_fullname
     local fullname=${!tmp_v}
-    local poolfullname=${fullname%%/*}
-    tmp_v=pool_${fs_tr}_path
+    tmp_v=pool_${pool}_fullname
+    local poolfullname=${!tmp_v}
+    tmp_v=fs_${fs_tr}_path
     local path=${!tmp_v}
     local idx=0
     local tmp_res
     local idx2=0
     local i
+
+    if [ "$1" == "-h" ] ; then
+        echo "destvar fs"
+        return 0
+    fi
 
     eval ${destvar}_pool=${pool}
     eval ${destvar}_name=${fs}
@@ -372,7 +704,7 @@ function get_fs_stats() {
 
     tmp_res=($(LC_ALL=C zpool list ${poolfullname} | LC_ALL=C gawk "/${poolfullname}/"' {print $2 "\n" $3 "\n" $4 "\n";}') )
 
-    for ((idx2=0; idx2 < 3; idx2++)) ;
+    for ((idx2=0; idx2 < 3; idx2++)) ; do
         tmp_val=${tmp_res[$idx]}
         unit=${tmp_val: -1:1}
         if [ "${unit}" == "T" ] ; then
@@ -402,7 +734,7 @@ function get_fs_stats() {
         tmp_res[3]=0
     fi
 
-    for ((idx2=0; idx2 < 3; idx2++)) ;
+    for ((idx2=0; idx2 < 3; idx2++)) ; do
         tmp_val=${tmp_res[$idx]}
         unit=${tmp_val: -1:1}
         if [ "${unit}" == "T" ] ; then
@@ -467,7 +799,12 @@ function diff_fs_stats() {
     local preval
     local postval
     local diffval
-    
+
+    if [ "$1" == "-h" ] ; then
+        echo "diff-array  stats-1  stats-2"
+        return 0
+    fi
+
     for i in pool name fullname path ; do
         temp_v=${prevar}_${i}
         preval=${!temp_v}
@@ -527,6 +864,11 @@ function check_sizes_fs() {
     local compfact=0
     local size=0
 
+    if [ "$1" == "-h" ] ; then
+        echo "[ -c comp_factor ] fs-diff-array  size"
+        return 0
+    fi
+
     if [ "${1}" == "-c" ] ; then
         shift
         compfact=${1}
@@ -553,6 +895,11 @@ function run_cmd() {
     local errname=''
     local cmd=''
     local usage_err=0
+
+    if [ "$1" == "-h" ] ; then
+        echo "[ --outname tmpfile | --outarray varname ] [ --errname tmpfile | --errarray varname ] command [ args ... ]"
+        return 0
+    fi
 
     while [ $# -gt 0 -a ${usage_err} -eq 0 -a "${1:0:2}" == "--" ] ; do
 
@@ -679,15 +1026,20 @@ function run_cmd() {
 # args:
 # diskname
 # globals:
-# ${name}_attached # 1 if attached, else 0
-# ${name}_disk     # device name of disk if attached, else '' 
+# disk_${name}_attached # 1 if attached, else 0
+# disk_${name}_disk     # device name of disk if attached, else '' 
 function attach_disk() {
     local name=${1}
-    local diskpath_v=${name}_path
+    local diskpath_v=disk_${name}_path
     local diskpath=${!diskpath_v}
-    local attached_v=${name}_attached
+    local attached_v=disk_${name}_attached
     local attached=${!attached_v}
     local outfile=""
+
+    if [ "$1" == "-h" ] ; then
+        echo "diskname"
+        return 0
+    fi
 
     if [ ${attached} -eq 1 ] ; then
         echo "$0 : warning: disk '${name}' already attached."
@@ -709,7 +1061,7 @@ function attach_disk() {
         return 1
     fi
 
-    eval ${name}_disk=\"\$\{tmpdiskval%% \*\}\"
+    eval disk_${name}_disk=\"\$\{tmpdiskval%% \*\}\"
     eval ${attached_v}=1
 
     rm ${outfile}
@@ -721,15 +1073,20 @@ function attach_disk() {
 # args:
 # diskname
 # globals:
-# ${name}_attached # 1 if attached, else 0
-# ${name}_disk     # device name of disk if attached, else '' 
+# disk_${name}_attached # 1 if attached, else 0
+# disk_${name}_disk     # device name of disk if attached, else '' 
 function detach_disk() {
     local name=${1}
-    local disk_v=${name}_disk
+    local disk_v=disk_${name}_disk
     local disk=${!disk_v}
-    local attached_v=${name}_attached
+    local attached_v=disk_${name}_attached
     local attached=${!attached_v}
     local outfile=""
+
+    if [ "$1" == "-h" ] ; then
+        echo "diskname"
+        return 0
+    fi
 
     if [ ${attached} -eq 0 ] ; then
         echo "$0 : warning: disk '${name}' not attached."
@@ -749,7 +1106,7 @@ function detach_disk() {
         return 1
     fi
 
-    eval ${name}_disk=\'\'
+    eval disk_${name}_disk=\'\'
     eval ${attached_v}=0
 
     rm ${outfile}
@@ -761,16 +1118,21 @@ function detach_disk() {
 # args:
 # disk_name
 # globals:
-# ${name}_attached # 1 if attached, else 0
-# ${name}_disk     # device name of disk if attached, else '' 
+# disk_${name}_attached # 1 if attached, else 0
+# disk_${name}_disk     # device name of disk if attached, else '' 
 function partion_disk() {
     local name=$1
     local was_attached=0
-    local diskpath_v=${name}_path
+    local diskpath_v=disk_${name}_path
     local diskpath=${!diskpath_v}
     local bandN=0
-    local disk_v=${name}_disk
+    local disk_v=disk_${name}_disk
     local disk=${!disk_v}
+
+    if [ "$1" == "-h" ] ; then
+        echo "diskname"
+        return 0
+    fi
 
     if [ -z "${diskpath}" ] ; then
         echo "$0 disk image not found" 1>&2
@@ -818,6 +1180,11 @@ function partion_disk() {
 function run_cmd_log() {
     local subnum=0
     local logname=""
+
+    if [ "$1" == "-h" ] ; then
+        echo "[ -t subtest ] command [ args .. ]"
+        return 0
+    fi
 
     if [ "$1" == "-t" ] ; then
         shift
@@ -913,6 +1280,11 @@ function run_ret() {
     shift
     shift
 
+    if [ "$1" == "-h" ] ; then
+        echo "expected_retval [ -t subtest ] message command [ args ]"
+        return 0
+    fi
+
     if [ "${message}" == "-t" ] ; then
         subtest=$1
         subtestarg="-t ${subtest}"
@@ -965,6 +1337,11 @@ function run_abort() {
     local retval=0
     shift
 
+    if [ "$1" == "-h" ] ; then
+        echo "expected_retval command [ args ]"
+        return 0
+    fi
+
     run_cmd "$@"
     retval=$?
 
@@ -988,6 +1365,11 @@ function run_check_regex() {
     local regex=""
     local retval=0
     local isfail=1
+
+    if [ "$1" == "-h" ] ; then
+        echo "expected_retval message [ -n ] regex command [ args ]"
+        return 0
+    fi
 
     shift
     shift
@@ -1029,5 +1411,105 @@ function run_check_regex() {
     return ${isfail}
 }
 
+
+# print value from set variable to stdout
+# args:
+# prefix id postfix [ intro ... ]
+# prefix  : variable prefix, see example
+# id      : object id, see example
+# postfix : variable postfix, see example
+# intro   : optional text to print befor value
+#
+# example: "pool p1 vdevs" will print the content of the variable "pool_p1_vdevs".
+function get_val() {
+    local name="$1_$2_$3"
+    local intro=''
+
+    if [ "$1" == "-h" ] ; then
+        echo "prefix id postfix"
+        return 0
+    fi
+
+    if [ $# -gt 3 ] ; then
+        shift
+        shift
+        shift
+        intro="$*"
+    fi
+    
+    echo "${intro}" "${!name}"
+}
+
+
+# print set of variables for object instance
+# args:
+# object-type id attribute ...
+# object-type : disk, pool, fs or file
+# id          : object id
+# attribute   : list of arrtibutes to print.
+function print_object() {
+    local i
+    local id="$2"
+    local prefix="$1"
+
+    if [ "$1" == "-h" ] ; then
+        echo "object-type id attribute ..."
+        return 0
+    fi
+
+    shift
+    shift
+
+    for i in $* ; do
+        get_val ${prefix} "${id}" ${i} "${i} : "
+    done
+}
+
+if [ -z "${genrand_bin}" ] ; then
+    genrand_bin=$(dirname $0)/genrand
+fi
+
+function tests_func_init() {
+
+    if [ ! -z "${tests_tmpdir}" ] ; then
+        export TMPDIR=${tests_tmpdir}
+    else
+        tests_tmpdir=$(mktemp -d -t tests_maczfs_)
+        export TMPDIR=${tests_tmpdir}
+    fi
+
+    if [ -z "${tests_logdir}" ] ; then
+        tests_logdir=$(mktemp -d -t test_logs_maczfs_)
+    fi
+
+    if [ -z "${genrand_bin}" ] ; then
+        genrand_bin=$(dirname $0)/genrand
+    fi
+
+    if [ ! -x "${genrand_bin}" ] ; then
+        echo "Error: random number generator '${genrand_bin}' not found."
+        echo "Did you compiled it? ('gcc -o genrand -O3 genrand.c' in the support folder.)"
+    fi
+
+    # initialize random data generator
+    genrand_state=${tests_logdir}/randstate.txt
+    ${genrand_bin} -s 13446 -S ${genrand_state}
+
+    if [ ! -d "${diskstore}" ] ; then
+        diskstore=$(mktemp -d -t diskstore_)
+    fi
+
+    cleanup=0
+    failcnt=0
+    okcnt=0
+    tottests=0
+    curtest=0
+
+    tests_func_init_done=1
+}
+
+if [ -z "${tests_func_init_done:-}" ] ; then
+    echo "run 'tests_func_init' to initialize test system."
+fi
 
 # End

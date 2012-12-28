@@ -11,12 +11,24 @@ has_fstest=0
 genrand_bin=./support/genrand
 #
 # check for local config file
-if [ -f maczfs-tests.conf] ; then
-    source maczfs-test.conf
+conf=maczfs-tests.conf
+if [ "${1:-}" == "-C" ] ; then
+    conf="${2:-}"
+    if [ ! -f "${conf}" ] ; then
+        echo "Config file '${conf}' not readable."
+        exit 1
+    fi
+elif [ "${1:-}" == "--help" ] ; then
+    echo "$0 [ -C conf-file ] "
+    exit 1
+fi
+
+if [ -f ${conf} ] ; then
+    source ${conf}
     # make sure diskstore is set, otherwise bad things will happen
     if [ ! -d "${diskstore}" ] ; then
-	echo "diskstore not set. Abort."
-	exit 1
+        echo "diskstore not set. Abort."
+        exit 1
     fi
 else
     diskstore=$(mktemp -d -t diskstore_)
@@ -44,6 +56,7 @@ fi
 genrand_state=${tests_logdir}/randstate.txt
 ${genrand_bin} -s 13446 -S ${genrand_state}
 
+tests_func_init_done=1
 
 # load various helper functions
 source ./support/tests-functions.sh
