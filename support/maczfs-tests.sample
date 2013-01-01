@@ -1,0 +1,12 @@
+# 
+# Config for testsystem for mac-zfs
+#
+testbase_maczfs=/Users/$(id -un)/maczfs-testbase
+tests_logdir=${testbase_maczfs}/logs
+tests_tmpdir=${testbase_maczfs}/tmp
+diskstore=${testbase_maczfs}/disks
+
+mkdir -pv ${tests_logdir} ${tests_tmpdir} ${diskstore}
+
+
+# End

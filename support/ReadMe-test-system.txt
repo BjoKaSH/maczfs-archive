@@ -58,6 +58,7 @@ file_<id>_name : original file name, including path relative the ZFS
                  file system or relative to "/" if not on a test system 
                  managed ZFS file system
 file_<id>_path : full path to file, starting at "/"
+file_<id>_compfact : standart gzip compression factor
 file_<id>_idx  : numeric index into files array for this file.
 
 
@@ -103,6 +104,81 @@ fs_<id>_pool     : pool name of corresponding pool, without prefix.  See
                    pool objects for details.
 fs_<id>_idx      : numeric index into files array for this file
 
+
+Two functions simplify access to these meta data varables: get_val() 
+and print_object():
+
+ - get_val prefix id postfix [ intro ... ]
+   Print content of the variable "${prefix}_${id}_${postfix}" to stdout.
+   If "intro" is not the empty string, then it is prefixed to the 
+   content of the printed variable.
+
+ - print_object object-type id attribute [ ... ]
+   Print all listed attributes of the given object.  This prints the 
+   variables "${object-type}_${id}_${attribute}", "${object-type}_${id}_${...}" ...
+
+ 
+Command execution
+=================
+
+A major purpose of the system is, to run command under controlled 
+conditions and to capture and compare their output against expected 
+values.  Running command, capturing output (stderr and stdout) and 
+searching the captured output for defined patters is implemented in a 
+number of run_... functions.  These are build on top of each other with 
+run_cmd being the workhorse and many convenient variants build around 
+it.  The following functions are defined:
+
+ - run_cmd  [ --outname tmpfile | --outarray varname ] [ --errname tmpfile | --errarray varname ] command [ args ... ]
+   Run a command and optionally capture stdout and/or stderr into files 
+   or arrays
+
+ - print_count_ok_fail
+   Internal support function, used to implement some of the run_... 
+   functions.
+
+ - print_run_cmd_logs
+   Internal support function, used to implement some of the run_... 
+   functions.
+
+ - run_cmd_log  [ -t subtest ] command [ args .. ]
+   (uses run_cmd)
+   Run then given command and log the command and any output generated 
+   on stderr and stdout to ${tests_logdir}/test_${curtest}.X where X is 
+   "cmd", "out" or "err", respectively.  If "it subtest" is given, then 
+   logs are written to ${tests_logdir}/test_${curtest}.${subtest}.X instead.
+
+ - run_ret  expected_retval [ -t subtest ] message command [ args ]
+   (uses run_cmd or run_cmd_log (depending on message and subtest being 
+   empty or not))
+   Run given command, compare return value and print a success or failure
+   message, depending on (mis)match of expected and actual return value.
+   The success or failure message is only printed, if the message parameter
+   is not the empty string.  The given command, its arguments, as well 
+   as the generated output to stdout and stderr are logged to 
+   ${tests_logdir}/test_${curtest}.X where X is "cmd", "out" or "err". 
+   Logging is not performed if message and subtest are both the empty 
+   string.
+   This function returns zero, if the command's return value matches
+   expected_retval, else it returns 1.  If -t subtest is given, then the
+   log names are changed to ${tests_logdir}/test_${curtest}.${subtest}.X 
+   with X as given above.
+ 
+ - run_abort  expected_retval command [ args ... ]
+   (uses run_cmd)
+   Does the same as run_ret, except that the test suite is aborted if 
+   the commands return value does not match the expected value.  Always
+   returns zero. 
+
+ - run_check_regex  expected_retval message [ '-n' ] regex command [ args ... ]
+   (uses run_cmd_log)
+   Does the same as run_ret, but compares the command's stdout to the 
+   given regular expression "regex".  Returns zero if (a) the expression 
+   matches the generated output (using substring search) and the optional
+   parameter "-n" is not given, or if (b) it does not match and "-n" is 
+   present.  In all other cases return 1, including in all cases where 
+   the original command's return code does not match the expected return
+   code expected_retval.
 
 
 Operation
