@@ -114,6 +114,122 @@ function list_disks() {
 }
 
 
+# damage a disk to test ZFS error tolerance.
+# args:
+# percent disk_name
+# globals:
+# disk_${name}_attached # 1 if attached, else 0
+# disk_${name}_disk     # device name of disk if attached, else '' 
+function damage_disk() {
+    local percent=$1
+    local name=$2
+    local diskpath_v=disk_${name}_path
+    local diskpath=${!diskpath_v}
+    local bandN=0
+    local disk_v=disk_${name}_disk
+    local disk=${!disk_v}
+    local disksize
+    local damagesize
+    local tmp_v
+    local miniterations_1
+    local miniterations
+    local maxiterations
+    local minsize
+    local maxsize
+    
+
+    if [ "$1" == "-h" ] ; then
+        echo "percent diskname"
+        return 0
+    fi
+
+    if [ -z "${diskpath}" ] ; then
+        echo "$0 disk image not found" 1>&2
+        return 1
+    fi
+    
+    echo "Damage_disk not implemented!"
+
+    return 0
+
+
+# we need to figure out how many iterations we need to do.  The criteria 
+# are:
+# Damage at most 4096 bytes (1 AF hardware sector) per iteration.
+# Damage at least 32 bytes per iteration (we do not do single-byte or 
+# bit damages).
+# Do at least 50 iterations or 5 per percent, whichever is more.  Relaxe 
+# minimum damage size of 32 bytes to 16 bytes if necessary, but not 
+# further.
+#
+# We first calc a lower limit on the number of iterations, based on disk 
+# size, percentage of damage and max damage per iteration
+
+    # size of disk
+    tmp_v=disk_${name}_size
+    disksize=${!tmp_v}
+    damagesize=$(echo "${disksize}*${percent}/100" | bc)
+    if [ 50 -lt $((${percent}*5)) ] ; then
+        miniterations_1=$((${percent}*5))
+    else
+        miniterations_1=50
+    fi
+    miniterations=$(echo "${damagesize}/4096" | bc)
+    maxiterations=$(echo "${damagesize}/32" | bc)
+    
+    if [ ${miniterations} -lt ${miniterations_1} ] ; then
+        maxsize=$(echo "${damagesize}/miniterations_1" | bc)
+        if [ ${maxsize} -lt 16 ] ; then
+            maxsize=16
+            miniterations_1=$(echo "${damagesize}/16" | bc)
+        fi
+        miniterations=${miniterations_1}
+    else
+        maxsize=4096
+    fi
+
+    # here, maxsize and miniterations are fixed
+
+    if [ ${maxiterations}  -lt ${miniteration} ] ; then
+        maxiterations=${miniterations}
+        minsize=$(echo "${damagesize}/maxiterations" | bc)
+    else
+        minsize=32
+    fi
+
+    # here minsize, maxsize, miniterations and maxiterations are fixed.
+
+    # now we do a loop, randomly varying damage size per iteration 
+    # between minsize and maxsize and randomly selecting damage start 
+    # positions.  We repeate the loop until we have written damagesize
+    # bytes of random data to the disk device (or its file backend).
+    
+    
+    
+    
+# first determine number of blocks in disk
+# split into 4096 extends
+# repeat for percent times:
+#   randomly select a segment
+#   overwrite segment
+# end repeat
+
+
+    if hdiutil info | grep -e "${diskpath}" ; then
+        # should be attached
+        was_attached=1
+    else
+        # not attached.  Try and get the first and last band, and destroy
+        # them, so the following attach will not trigger a mount or an import
+        was_attached=0
+    fi
+    
+    echo "Damage_disk not implemented!"
+
+    return 0
+}
+
+
 # create temporary file
 #
 # creates a new temporary file in the default location and returns
@@ -149,6 +265,57 @@ function new_temp_file() {
     fi
 
     return ${res}
+}
+
+
+# generate single random number in given interval
+# args:
+# min max
+# min : lower bound for number (inclusive)
+# max : upper bound for number (inclusive)
+function get_rand_number() {
+    local upperlimit="-b"
+    if [ ${2} -gt 255 ] ; then
+        upperlimit="-w"
+    fi
+
+    ${genrand_bin}  -S {genrand_state} -d ${upperlimit} -m $1 -M $2
+    return 0
+}
+
+
+# generate name of given length
+# args:
+# min_length  [ max_length ]
+# min_length : minimal name length, if no max_length given, then a name
+#    of exactly min_length bytes is generated
+# max_length : optional max name length, if given, then a random length
+# between min_length and max_length (both inclusive) will be generated.
+# The generated name is echoed to stdout.
+function make_name() {
+    local len=0
+    local min=${1}
+    local max=0
+    local upperlimit="-b"
+
+    if [ $# -eq 2 ] ; then
+        max=$2
+        len=0
+        upperlimit="-b"
+        if [ ${max} -gt 255 ] ; then
+            upperlimit="-w"
+        fi
+#        while [ ${len} -lt ${min} -o ${len} -gt ${max} ] ; do
+#            len=$(${genrand_bin} -S ${genrand_state} -c 1 ${upperlimit} -d)
+#        done
+        len=$(${genrand_bin} -S ${genrand_state} -c 1 ${upperlimit} -m ${min} -M ${max} -d)
+    else
+        len=${min}
+    fi
+
+    ${genrand_bin} -S ${genrand_state} -c ${len} -b -a
+
+    return 0
 }
 
 
@@ -575,6 +742,35 @@ function remove_file() {
     return ${res}
 }
 
+
+# determine file compression
+# args:
+# file
+# file : file name to use.  the actual path is read from
+#    file_${file}_path, see make_file().
+# globals:
+# file_${file}_path
+# file_${file}_size
+# file_${file}_compfact
+function calc_comp_fact() {
+    local fileid="$1"
+    local tmp_v
+    local filepath
+    local compsize=0
+    local nomsize=0
+
+    tmp_v=file_${fileid}_path
+    filepath=${!tmp_v}
+
+    tmp_v=file_${fileid}_size
+    nomsize=${!tmp_v}
+
+    compsize=$(gzip <${filepath} | wc -c)
+    eval file_${fileid}_compfact=$(echo "${nomsize} / ${compsize}" | bc)
+    return 0
+}
+
+
 # determine file statistics and store result in the array destvar as
 # well as in individual variables ${destvar}_*
 # args:
@@ -642,6 +838,20 @@ function get_file_stats() {
         eval ${destvar}_${i}=\$\{st_${i}\}
         eval ${destvar}\[${i2}\]=\$\{st_${i}\}
         ((i2++))
+    done
+}
+
+
+# print file status meta data
+# args:
+# stats_array_name  : name of variable holding the state data, see 
+#    get_file_stats()
+function print_file_stats() {
+    local tmp_v=""
+
+    for i in name path mode nlink uid gid size atime mtime ctime blksize blocks ; do
+        tmp_v=${1}_${i}
+        echo "$i : ${!tmp_v}"
     done
 }
 
@@ -769,6 +979,20 @@ function get_fs_stats() {
 }
 
 
+# print file system status meta data
+# args:
+# stats_array_name  : name of variable holding the state data, see 
+#    get_fs_stats()
+function print_file_stats() {
+    local tmp_v=""
+
+    for i in pool name fullname path size alloc free used avail ref comp dfblocks dfused dffree; do
+        tmp_v=${1}_${i}
+        echo "$i : ${!tmp_v}"
+    done
+}
+
+
 # compare two fs stats and save difference in new array
 # args:
 # diff_array  stats_1_array  stats_2_array
@@ -881,9 +1105,63 @@ function check_sizes_fs() {
         sizecomp=${size}
     fi
 
-    blockcount=$( echo "(${sizecomp} / ${blocksize}) + 1" | bc)
+    echo "Warning: check_sizes_fs() not implemented"
+    return 0
+    
+#    blockcount=$( echo "(${sizecomp} / ${blocksize}) + 1" | bc)
 
 }
+
+
+# check if file size reported by ls makes sense
+# args:
+# [ -c compfact ] diff_stat_array  size
+# -c compfact : expected compression factor of file
+# diff_stat_array : result from diff_fs_stats()
+# size  : uncompressed file size added to or removed from file system 
+# globals:
+# ${diff_array}_pool   = copied from stats_1_array
+# ${diff_array}_name   = copied from stats_1_array
+# ${diff_array}_fullname = copied from stats_1_array
+# ${diff_array}_path   = copied from stats_1_array
+# ${diff_array}_size   = stats_2_array - stats_1_array
+# ${diff_array}_alloc  = stats_2_array - stats_1_array
+# ${diff_array}_free   = stats_2_array - stats_1_array
+# ${diff_array}_used   = stats_2_array - stats_1_array
+# ${diff_array}_avail  = stats_2_array - stats_1_array
+# ${diff_array}_ref    = stats_2_array - stats_1_array
+# ${diff_array}_comp   = stats_2_array - stats_1_array
+# ${diff_array}_dfblocks = stats_2_array - stats_1_array
+# ${diff_array}_dfused = stats_2_array - stats_1_array
+# ${diff_array}_dffree = stats_2_array - stats_1_array
+function check_sizes_file() {
+    local compfact=0
+    local size=0
+
+    if [ "$1" == "-h" ] ; then
+        echo "[ -c comp_factor ] fs-diff-array  size"
+        return 0
+    fi
+
+    if [ "${1}" == "-c" ] ; then
+        shift
+        compfact=${1}
+        shift
+        size=$(parse_size $1)
+        sizecomp=$( echo ${size} / ${compfact} | bc)
+    else
+        compfact=1
+        size=$(parse_size $1)
+        sizecomp=${size}
+    fi
+
+    echo "Warning: check_sizes_file() not implemented"
+    return 0
+    
+#    blockcount=$( echo "(${sizecomp} / ${blocksize}) + 1" | bc)
+
+}
+
 
 # run a command and optionally capture stdout and/or stderr into files or arrays
 # args:
@@ -1277,14 +1555,35 @@ function run_ret() {
     local subtest=0
     local subtestarg=""
     local retval=0
+    local rrmode=0
     shift
     shift
 
-    if [ "$1" == "-h" ] ; then
+    if [ "${exp_ret}" == "-h" ] ; then
         echo "expected_retval [ -t subtest ] message command [ args ]"
         return 0
     fi
 
+    if [ "${exp_ret}" == "-is" ] ; then
+        # called as run_ret_start
+        rrmode=1
+        cursubtest=1
+        subtest=1
+        subtestarg="-t 1"
+    elif [ "${exp_ret}" == "-in" ] ; then
+        # called as run_ret_next
+        rrmode=2
+        ((cursubtest++))
+        subtest=${cursubtest}
+        subtestarg="-t ${subtest}"
+    elif [ "${exp_ret}" == "-ie" ] ; then
+        # called as run_ret_end
+        rrmode=3
+        ((cursubtest++))
+        subtest=${cursubtest}
+        subtestarg="-t ${subtest}"
+    fi
+    
     if [ "${message}" == "-t" ] ; then
         subtest=$1
         subtestarg="-t ${subtest}"
@@ -1308,13 +1607,19 @@ function run_ret() {
         run_cmd_log ${subtestarg} "$@"
         retval=$?
 
-        if [ ${retval} -eq ${exp_ret} ] ; then
-            print_count_ok_fail 0
-        else
-            print_count_ok_fail 1
+        if [ ${rrmode} -eq 0 -o ${rrmode} -eq 3 ] ; then
+            if [ ${retval} -eq ${exp_ret} ] ; then
+                print_count_ok_fail 0
+            else
+                print_count_ok_fail 1
+            fi
         fi
 
-        print_run_cmd_logs
+        print_run_cmd_logs ${subtestarg}
+    fi
+
+    if [ ${rrmode} -ne 0 ] ; then
+        cursubtest=${subtest}
     fi
 
     last_cmd_retval=${retval}
@@ -1326,6 +1631,21 @@ function run_ret() {
     fi
 
     return ${retval}
+}
+
+
+function run_ret_start() {
+    run_ret -is "$@"
+}
+
+
+function run_ret_next() {
+    run_ret -in "$@"
+}
+
+
+function run_ret_end() {
+    run_ret -ie "$@"
 }
 
 
