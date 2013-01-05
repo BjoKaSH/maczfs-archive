@@ -121,10 +121,10 @@ and print_object():
 Command execution
 =================
 
-A major purpose of the system is, to run command under controlled 
+A major purpose of the system is, to run commands under controlled 
 conditions and to capture and compare their output against expected 
 values.  Running command, capturing output (stderr and stdout) and 
-searching the captured output for defined patters is implemented in a 
+searching the captured output for defined patterns is implemented in a 
 number of run_... functions.  These are build on top of each other with 
 run_cmd being the workhorse and many convenient variants build around 
 it.  The following functions are defined:
@@ -180,6 +180,51 @@ it.  The following functions are defined:
    the original command's return code does not match the expected return
    code expected_retval.
 
+ - run_ret_start  expected_retval [ -t subtest ] message command [ args ]
+
+ - run_ret_next  expected_retval [ -t subtest ] message command [ args ]
+
+ - run_ret_end  expected_retval [ -t subtest ] message command [ args ]
+
+All functions that log the command execution use an auto-generated log 
+file name of "test_${curtest}.X" where the X is one out of "cmd", "out" 
+and "err".  The variable "curtest" is a counter starting at 1 and 
+incremented every time a command is run.  All commands that (auto)detect 
+success or failure (currently run_ret and run_check_regex) also increment
+either the value of "okcnt" or "failcnt", depending on success or failure
+of the command executed.
+
+Several of these function take a parameter "-t subtest".  This parameter
+changes the default log file names by adding an additional counter 
+"subtest", resulting in "test_${curtest}.${subtest}.X" as log file name.
+Additional, if the "subtest" parameter is non-zero, then curtest is not
+incremented, while the okcnt and failcnt variables are always updated 
+(independent of the value of subtest).
+
+The function run_ret_start, ..._next and ..._end support aggregation of
+several commands into one single test case with exactly one update of 
+okcnt and failcnt, triggered by running run_ret_end.  Apart from not 
+updating okcnt and failcnt for intermediated commands, these function 
+behave like run_ret and take the same arguments.  All three functions do
+not require the subtest parameter and default to "1" for run_ret_start
+and the last used subtest value + 1 for run_ret_next and run_ret_end. 
+For this, an internal counter variable "subtest" is used.
+
+
+Other support functions
+=======================
+
+Several functions are provided to simplify common tasks like creating 
+temporary files and directories or to perform common zfs tasks like 
+creating pools, setting or getting properties.
+
+ - new_temp_file [ -p base ]
+   create a new, empty file in the default temporary files directory.  
+   The file name (including full path) is echoed to stdout. 
+   If "-p base" is given, then the new file is created in the directory 
+   "base", which must be an existing, absolute path.  In this case, only
+   the basename (filename without path) is echoed to stdout.
+   
 
 Operation
 =========
