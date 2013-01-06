@@ -47,7 +47,7 @@ static struct option long_options[] = {
 	{"ascii", no_argument, 0, 'a'},
 	{"octets", no_argument, 0, 'o'},
   {"triangular", no_argument, 0, 't'},
-  {"verbose", no_argument, 0, 't'},
+  {"verbose", no_argument, 0, 'v'},
 	{"help", no_argument, 0, 'H'},
 	{0, 0, 0, 0}
 };
