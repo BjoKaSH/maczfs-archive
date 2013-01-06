@@ -52,7 +52,7 @@ file system where the file is placed, but with "/" and spaces replaced
 by "_".
 
 file_<id>_size : size of file in bytes
-file_<id>_pool : ZFS file system where the file is stored, empty if not
+file_<id>_fs   : ZFS file system where the file is stored, empty if not
                  on a ZFS file system managed by the test system
 file_<id>_name : original file name, including path relative the ZFS 
                  file system or relative to "/" if not on a test system 
