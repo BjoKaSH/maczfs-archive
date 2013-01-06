@@ -97,6 +97,54 @@ function make_disk() {
 }
 
 
+# destroy a disk image
+# args:
+# disk_name
+# globals:
+# disk_${name}_attached # 1 if attached, else 0
+# disk_${name}_disk     # device name of disk if attached, else '' 
+# disk_${name}_size     # size in GB
+# disk_${name}_path     # path to sparse bundle directory
+function destroy_disk() {
+    local name=$1
+    local diskidx=0
+    local tmp_v
+    local i
+
+    if [ "$1" == "-h" ] ; then
+        echo "disk_name"
+        return 0
+    fi
+
+    tmp_v=disk_${name}_idx
+    
+    if [ -z "${!tmp_v}" ] ; then
+        echo "Nothing known about disk '${name}'"
+        return 0
+    fi
+    diskidx=${!tmp_v}
+
+    tmp_v=disk_${name}_attached
+    if [ "1" == "${!tmp_v}" ] ; then
+        detach_disk ${name}
+    fi
+
+    if [ ! -d ${diskstore}/${name}.sparsebundle ] ; then
+        echo "error, image path not found."
+        return 1
+    fi
+
+    rm -rf ${diskstore}/${name}.sparsebundle
+
+    for i in attached disk size path idx ; do
+        eval unset disk_${name}_${i}
+    done
+
+    disks[${diskidx}]=""
+    return 0
+}
+
+
 # show all defined disk images
 function list_disks() {
     local i
@@ -389,6 +437,65 @@ function make_pool() {
 }
 
 
+# destroy named zfs pool
+# args:
+# poolname 
+# globals:
+# pool_${poolname}_opt=...   : options used
+# pool_${poolname}_fullname= : pool name with pool prefix
+# pool_${poolname}_path=     : full path to pool filesystem
+# pool_${poolname}_vdevs=... : vdev specification used
+# poolbase : prefix for all pools.
+# pools[] : list of all test pools
+# poolsmax : highest used index in pools[]
+function destroy_pool() {
+    local tmp_v=""
+    local poolidx=0
+    local poolname="${1}"
+    local poolfullname=""
+    local name
+    local res=0
+    local i=''
+
+    if [ "$1" == "-h" ] ; then
+        echo "poolname"
+        return 0
+    fi
+
+    tmp_v=pool_${poolname}_idx
+    if [ -z "${!tmp_v}" ] ; then
+        echo "Pool '${poolname}' not found"
+        return 0
+    fi
+    poolidx=${!tmp_v}
+
+    tmp_v=pool_${poolname}_fullname
+    poolfullname="${!tmp_v}"
+
+    run_cmd_log zpool destroy -f ${poolfullname}
+
+    for ((i=0; i < fssmax; i++)) ; do
+        if [ "${fss[i]}" == "" ] ; then
+            continue
+        fi
+        name="${fss[i]}"
+        tmp_v=fs_${name}_pool
+        if [ "${!tmp_v}" != "${poolname}" ] ; then
+            continue
+        fi
+        forget_fs ${name}
+    done
+
+    for i in opt fullname path vdevs idx ; do
+        eval unset pool_${poolname}_${i}
+    done
+
+    pools[${poolidx}]=""
+    
+    return 0
+}
+
+
 # show all defined pools
 function list_pools() {
     local i
@@ -461,16 +568,51 @@ function make_fs() {
 }
 
 
+# remove file system from list of known fs
+# args:
+# fsname
+# fsname : name of filesystem
+function forget_fs() {
+    local i
+    local name="${1}"
+    local fsidx
+    local tmp_v
+
+    tmp_v=fs_${name}_idx
+    fsidx=${!tmp_v}
+
+    for i in name fullname path pool opt idx ; do
+        eval unset fs_${name}_${i}
+    done
+
+    return 0
+}
+
+
 # show all defined file systems
+# args:
+# [ poolname ]
+# poolname : only show file systems belonging to pool poolname
 function list_fss() {
     local i
     local name
+    local poolname=""
+    
+    if [ $# -eq 1 ] ; then
+        poolname="${1}"
+    fi
 
     for ((i=0; i < fssmax; i++)) ; do
         if [ "${fss[i]}" == "" ] ; then
             continue
         fi
         name="${fss[i]}"
+        if [ -n "${poolname}" ] ; then
+            tmp_v=fs_${name}_pool
+            if [ "${!tmp_v}" != "${poolname}" ] ; then
+                continue
+            fi
+        fi
         echo "FS '${name}'"
         print_object fs "${name}" name fullname path pool opt
         echo
@@ -576,15 +718,29 @@ function make_file() {
 
 
 # show all defined files
+# args:
+# [ fsname ]
+# fsname : only show files on the file system fsname
 function list_files() {
     local i
     local name
+    local fsname=""
+
+    if [ $# -eq 1 ] ; then
+        fsname="${1}"
+    fi
 
     for ((i=0; i < filesmax; i++)) ; do
         if [ "${files[i]}" == "" ] ; then
             continue
         fi
         name="${files[i]}"
+        if [ -n "${fsname}" ] ; then
+            tmp_v=file_${name}_fs
+            if [ "${!tmp_v}" != "${fsname}" ] ; then
+                continue
+            fi
+        fi
         echo "File '${name}'"
         print_object file "${name}" name path fs size
         echo
@@ -734,12 +890,49 @@ function remove_file() {
     rm -i "${filepath}"
     res=$?
     if [ ${res} -eq 0 ] ; then
-        files[${fileidx}]=''
+        forget_file ${filename}
     else
         echo "remove_file(): unlink failed"
     fi
 
     return ${res}
+}
+
+
+# forget file creaed by make_file()
+# args:
+# filename
+# filename : file name as given to make_file().  The actual path is
+#    read from file_${file}_path, see make_file().
+function forget_file() {
+    local filename=""
+    local filename_tr=""
+    local fileidx=0
+
+    if [ "$1" == "-h" ] ; then
+        echo "filename"
+        return 0
+    fi
+
+    filename=${1}
+    filename_tr=${filename//\//_}
+
+    for ((fileidx=0; fileidx < filesmax; fileidx++)) ; do
+        if [ "${files[${fileidx}]}" == "${filename_tr}" ] ; then
+            break
+        fi
+    done
+    
+    if [ ${fileidx} -eq ${filesmax} ] ; then
+        echo "forget_file(): Nothing known about '${filename}'."
+        return 1
+    fi
+
+    for i in size fs name path compfact idx; do
+        eval unset file_${filename_tr}_${i}
+    done
+    
+    files[${fileidx}]=''
 }
 
 
@@ -1827,6 +2020,70 @@ function tests_func_init() {
 
     tests_func_init_done=1
 }
+
+
+function tests_func_cleanup() {
+    local i
+    local name
+    local tmp_v
+
+    stop_on_fail=0
+    
+    for ((i=0; i < poolsmax; i++)) ; do
+        if [ "${pools[i]}" == "" ] ; then
+            continue
+        fi
+        name="${pools[i]}"
+        echo "Destroying pool '${name}'"
+        destroy_pool ${name}
+    done
+
+    poolsmax=0
+
+    fssmax=0
+    fss[0]=''
+
+    for ((i=0; i < filesmax; i++)) ; do
+        if [ "${files[i]}" == "" ] ; then
+            continue
+        fi
+        name="${files[i]}"
+        tmp_v=file_${name}_fs
+        fsname="${!tmp_v}"
+        if [ "" != "${fsname}"  -a  "_temp_" != "${fsname}" ] ; then
+            forget_file ${name}
+        elif [ "_temp_" == "${fsname}" ] ; then
+            remove_file ${name}
+        fi
+        echo "File '${name}'"
+        print_object file "${name}" name path fs size
+        echo
+    done
+
+    filesmax=0
+    files[0]=''
+
+    for ((i=0; i < disksmax; i++)) ; do
+        if [ "${disks[i]}" == "" ] ; then
+            continue
+        fi
+        name="${disks[i]}"
+        
+        tmp_v=disk_${name}_attached
+        if [ "1" == "${!tmp_v}" ] ; then
+            detach_disk ${name}
+        fi
+        echo "Deleting disk '${name}'"
+        destroy_disk ${name}
+    done
+
+    disksmax=0
+    disks=''
+
+    unset tests_func_init_arr
+    unset tests_func_init_done
+}
+
 
 if [ -z "${tests_func_init_done:-}" ] ; then
     echo "run 'tests_func_init' to initialize test system."
