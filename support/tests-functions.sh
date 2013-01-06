@@ -371,18 +371,18 @@ function make_pool() {
     done
     eval pool_${poolname}_realvdevs="\"\${realvdevs}\""
 
-    zpool create ${opt} ${poolname} ${realvdevs}
+    zpool create ${opt} ${poolfullname} ${realvdevs}
     res=$?
     if [ ${res} -eq 0 ] ; then
         pools[${poolsmax}]=$poolname
         eval pool_${poolname}_idx=${poolsmax}
         ((poolsmax++))
 
-        eval fs_${fsname_tr}_opt=""
-        eval fs_${fsname_tr}_name="\"\${poolname}\""
-        eval fs_${fsname_tr}_fullname="\"\${poolfullname}\""
-        eval fs_${fsname_tr}_path="\"/Volumes/\${poolfullname}\""
-        eval fs_${fsname_tr}_pool="\"\${poolname}\""
+        eval fs_${poolfullname}_opt=""
+        eval fs_${poolfullname}_name="\"\${poolname}\""
+        eval fs_${poolfullname}_fullname="\"\${poolfullname}\""
+        eval fs_${poolfullname}_path="\"/Volumes/\${poolfullname}\""
+        eval fs_${poolfullname}_pool="\"\${poolname}\""
     fi
 
     return ${res}
