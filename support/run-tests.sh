@@ -146,7 +146,7 @@ run_cmd_log -t 0 get_file_stats stat_tf1_b tf1
 run_cmd_log -t 1 get_fs_stats stat_p1_b p1
 diff_fs_stats stat_p1_diff1  stat_p1_a  stat_p1_b
 run_ret_start 0 -t 2 "verify space accounting" check_sizes_fs  stat_p1_diff1  8m  
-run_ret_end 0 check_sizes_file  stat_tf1_b  8m
+run_ret_end 0 "checking file sizes" check_sizes_file  stat_tf1_b  8m
 
 # - enable compression
 run_ret 0 "Enabling compression" zfs set compression=on ${pool1}

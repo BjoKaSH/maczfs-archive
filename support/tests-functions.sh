@@ -426,11 +426,11 @@ function make_pool() {
         eval pool_${poolname}_idx=${poolsmax}
         ((poolsmax++))
 
-        eval fs_${poolfullname}_opt=""
-        eval fs_${poolfullname}_name="\"\${poolname}\""
-        eval fs_${poolfullname}_fullname="\"\${poolfullname}\""
-        eval fs_${poolfullname}_path="\"/Volumes/\${poolfullname}\""
-        eval fs_${poolfullname}_pool="\"\${poolname}\""
+        eval fs_${poolname}_opt=""
+        eval fs_${poolname}_name="\"\${poolname}\""
+        eval fs_${poolname}_fullname="\"\${poolfullname}\""
+        eval fs_${poolname}_path="\"/Volumes/\${poolfullname}\""
+        eval fs_${poolname}_pool="\"\${poolname}\""
     fi
 
     return ${res}
@@ -554,7 +554,7 @@ function make_fs() {
     eval fs_${fsname_tr}_path="\"/Volumes/\${fsfullname}\""
     eval fs_${fsname_tr}_pool="\"\${fsname%%/\*}\""
 
-    zfs create ${opt} ${fsname}
+    zfs create ${opt} ${fsfullname}
 
     res=$?
     
@@ -696,7 +696,7 @@ function make_file() {
         ${genrand_bin} -S ${genrand_state} -c ${count} ${sizeflag} -o >${filepath}
         res=$?
     else
-        ${genrand_bin} -S ${genrand_state} -c ${count} ${sizeflag} -o -t >${filepath}
+        ${genrand_bin} -S ${genrand_state} -c ${size} -b -o -t >${filepath}
         res=$?
     fi
     
@@ -846,14 +846,14 @@ function copy_file() {
     fi
 
     if [ ${destidx} -eq ${filesmax} ] ; then
-        ((filessmax++))
+        ((filesmax++))
     fi
 
     return $res
 }
 
 
-# remove (delete) file creaed by make_file()
+# remove (delete) file created by make_file()
 # args:
 # filename
 # filename : file name as given to make_file().  The actual path is
@@ -889,7 +889,7 @@ function remove_file() {
 
     rm -i "${filepath}"
     res=$?
-    if [ ${res} -eq 0 ] ; then
+    if [ ${res} -eq 0 -a ! -e "${filepath}" ] ; then
         forget_file ${filename}
     else
         echo "remove_file(): unlink failed"
@@ -1176,7 +1176,7 @@ function get_fs_stats() {
 # args:
 # stats_array_name  : name of variable holding the state data, see 
 #    get_fs_stats()
-function print_file_stats() {
+function print_fs_stats() {
     local tmp_v=""
 
     for i in pool name fullname path size alloc free used avail ref comp dfblocks dfused dffree; do
@@ -1749,8 +1749,6 @@ function run_ret() {
     local subtestarg=""
     local retval=0
     local rrmode=0
-    shift
-    shift
 
     if [ "${exp_ret}" == "-h" ] ; then
         echo "expected_retval [ -t subtest ] message command [ args ]"
@@ -1763,20 +1761,32 @@ function run_ret() {
         cursubtest=1
         subtest=1
         subtestarg="-t 1"
+        shift
+		exp_ret=$1
+		message="$2"
     elif [ "${exp_ret}" == "-in" ] ; then
         # called as run_ret_next
         rrmode=2
         ((cursubtest++))
         subtest=${cursubtest}
         subtestarg="-t ${subtest}"
+        shift
+		exp_ret=$1
+		message="$2"
     elif [ "${exp_ret}" == "-ie" ] ; then
         # called as run_ret_end
         rrmode=3
         ((cursubtest++))
         subtest=${cursubtest}
         subtestarg="-t ${subtest}"
+        shift
+		exp_ret=$1
+		message="$2"
     fi
-    
+
+    shift
+    shift
+
     if [ "${message}" == "-t" ] ; then
         subtest=$1
         subtestarg="-t ${subtest}"
@@ -2017,6 +2027,8 @@ function tests_func_init() {
     okcnt=0
     tottests=0
     curtest=0
+
+	stop_on_fail=0
 
     tests_func_init_done=1
 }
