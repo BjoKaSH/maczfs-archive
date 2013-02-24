@@ -60,6 +60,8 @@ file_<id>_name : original file name, including path relative the ZFS
 file_<id>_path : full path to file, starting at "/"
 file_<id>_compfact : standart gzip compression factor
 file_<id>_idx  : numeric index into files array for this file.
+file_<id>_ghost : file deleted from visible file system, but present in
+                  some snapshots.
 
 
 For disks, the id is the unchanged name given to make_disk.  The 

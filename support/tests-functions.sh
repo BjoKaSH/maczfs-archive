@@ -705,6 +705,7 @@ function make_file() {
         eval file_${filename_tr}_fs=${fs}
         eval file_${filename_tr}_name=${filename}
         eval file_${filename_tr}_path=${filepath}
+        eval file_${filename_tr}_ghost=0
 
         files[${filesmax}]=${filename_tr}
         eval file_${filename_tr}_idx=${filesmax}
@@ -742,7 +743,7 @@ function list_files() {
             fi
         fi
         echo "File '${name}'"
-        print_object file "${name}" name path fs size
+        print_object file "${name}" name path fs size ghost
         echo
     done
 }
@@ -838,6 +839,7 @@ function copy_file() {
         eval file_${destname_tr}_fs=${fs}
         eval file_${destname_tr}_name=${destname}
         eval file_${destname_tr}_path=${destpath}
+        eval file_${destname_tr}_ghost=0
 
         files[${destidx}]=${destname_tr}
         eval file_${destname_tr}_idx=${destidx}
@@ -855,7 +857,9 @@ function copy_file() {
 
 # remove (delete) file created by make_file()
 # args:
-# filename
+# [ -k ] filename
+# -k : delete file from file system, but keep meta data (use for files
+#    that may return from snapshots)
 # filename : file name as given to make_file().  The actual path is
 #    read from file_${file}_path, see make_file().
 function remove_file() {
@@ -864,10 +868,16 @@ function remove_file() {
     local filepath=""
     local filepath_v=''
     local fileidx=0
+    local keepmeta=0
 
     if [ "$1" == "-h" ] ; then
         echo "filename"
         return 0
+    fi
+
+    if [ "$1" == "-k" ] ; then
+        keepmeta=1
+		shift
     fi
 
     filename=${1}
@@ -884,13 +894,23 @@ function remove_file() {
         return 1
     fi
 
-    filepath_v=file_${filename_tr}_path
-    filepath="${!filepath_v}"
+    tmp_v=file_${filename_tr}_path
+    filepath="${!tmp_v}"
 
+	tmp_v=file_${filename_tr}_ghost
+	if [ ${!tmp_v} -eq 1 -a ! -e "${filepath}" ] ; then
+		echo "File already removed (file is a ghost entry)."
+		return 0
+	fi
+	
     rm -i "${filepath}"
     res=$?
     if [ ${res} -eq 0 -a ! -e "${filepath}" ] ; then
-        forget_file ${filename}
+		if [ ${keepmeta} -eq 0 ] ; then
+			forget_file ${filename}
+		else
+			eval file_${filename_tr}_ghost=1
+		fi
     else
         echo "remove_file(): unlink failed"
     fi
@@ -928,7 +948,7 @@ function forget_file() {
         return 1
     fi
 
-    for i in size fs name path compfact idx; do
+    for i in size fs name path compfact idx ghost; do
         eval unset file_${filename_tr}_${i}
     done
     
