@@ -933,7 +933,7 @@ function remove_file() {
 
     if [ "$1" == "-k" ] ; then
         keepmeta=1
-		shift
+        shift
     fi
 
     filename=${1}
@@ -953,20 +953,20 @@ function remove_file() {
     tmp_v=file_${filename_tr}_path
     filepath="${!tmp_v}"
 
-	tmp_v=file_${filename_tr}_ghost
-	if [ ${!tmp_v} -eq 1 -a ! -e "${filepath}" ] ; then
-		echo "File already removed (file is a ghost entry)."
-		return 0
-	fi
-	
+    tmp_v=file_${filename_tr}_ghost
+    if [ ${!tmp_v} -eq 1 -a ! -e "${filepath}" ] ; then
+        echo "File already removed (file is a ghost entry)."
+        return 0
+    fi
+    
     rm -i "${filepath}"
     res=$?
     if [ ${res} -eq 0 -a ! -e "${filepath}" ] ; then
-		if [ ${keepmeta} -eq 0 ] ; then
-			forget_file ${filename}
-		else
-			eval file_${filename_tr}_ghost=1
-		fi
+        if [ ${keepmeta} -eq 0 ] ; then
+            forget_file ${filename}
+        else
+            eval file_${filename_tr}_ghost=1
+        fi
     else
         echo "remove_file(): unlink failed"
     fi
@@ -1838,8 +1838,8 @@ function run_ret() {
         subtest=1
         subtestarg="-t 1"
         shift
-		exp_ret=$1
-		message="$2"
+        exp_ret=$1
+        message="$2"
     elif [ "${exp_ret}" == "-in" ] ; then
         # called as run_ret_next
         rrmode=2
@@ -1847,8 +1847,8 @@ function run_ret() {
         subtest=${cursubtest}
         subtestarg="-t ${subtest}"
         shift
-		exp_ret=$1
-		message="$2"
+        exp_ret=$1
+        message="$2"
     elif [ "${exp_ret}" == "-ie" ] ; then
         # called as run_ret_end
         rrmode=3
@@ -1856,8 +1856,8 @@ function run_ret() {
         subtest=${cursubtest}
         subtestarg="-t ${subtest}"
         shift
-		exp_ret=$1
-		message="$2"
+        exp_ret=$1
+        message="$2"
     fi
 
     shift
@@ -2104,7 +2104,7 @@ function tests_func_init() {
     tottests=0
     curtest=0
 
-	stop_on_fail=0
+    stop_on_fail=0
 
     tests_func_init_done=1
 }
