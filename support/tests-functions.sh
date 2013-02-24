@@ -975,6 +975,63 @@ function remove_file() {
 }
 
 
+# declare re-appearance of a file deleted by remove_file -k ....
+# args:
+# filename  [ new_fs ]
+# filename : file name as given to make_file().  The actual path is
+#    read from file_${file}_path, see make_file().
+# new_fs   : optional new file system which hold the file.  Use when
+#    cloning a snapshot.
+function resurrect_file() {
+    local filename=""
+    local filename_tr=""
+    local filepath=""
+    local filepath_v=''
+    local fileidx=0
+    local keepmeta=0
+
+    if [ "$1" == "-h" ] ; then
+        echo "filename"
+        return 0
+    fi
+
+    filename=${1}
+    filename_tr=${filename//\//_}
+
+    for ((fileidx=0; fileidx < filesmax; fileidx++)) ; do
+        if [ "${files[${fileidx}]}" == "${filename_tr}" ] ; then
+            break
+        fi
+    done
+    
+    if [ ${fileidx} -eq ${filesmax} ] ; then
+        echo "resurrect_file(): Nothing known about '${filename}'."
+        return 1
+    fi
+
+    tmp_v=file_${filename_tr}_ghost
+    if [ ${!tmp_v} -eq 0 ] ; then
+        echo "File not in ghost state."
+        return 1
+    fi
+
+    tmp_v=file_${filename_tr}_path
+    filepath="${!tmp_v}"
+
+    if [ $# -eq 2 ] ; then
+        # new fs path
+        tmp_v=file_${filename_tr}_fs
+        eval filepath=${poolbase}_${2}/\${filepath\#${poolbase}_${!tmp_v}/}
+        eval file_${filename_tr}_fs="${2}"
+        eval file_${filename_tr}_path="${filepath}"
+    fi
+
+    eval file_${filename_tr}_ghost=0
+
+    return 0
+}
+
+
 # forget file creaed by make_file()
 # args:
 # filename
