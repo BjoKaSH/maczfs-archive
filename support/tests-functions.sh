@@ -567,6 +567,62 @@ function make_fs() {
     return ${res}
 }
 
+# clone snapshot into new zfs filesystem
+# args:
+# snapshot fsname [ -o option=value [ -o ... ] ]
+# globals:
+# (fsname_tr is fsname, but with "/" mapped to "_")
+# fs_${fsname_tr}_opt=...  : options used
+# fs_${fsname_tr}_path=    : full path to zfs filesystem
+# fs_${fsname_tr}_name=... : original file system name ${fsname}
+# fs_${fsname_tr}_fullname= : zfs filesystem name with full pool prefix
+# fs_${fsname_tr}_pool=    : name of pool
+function make_clone_fs() {
+    local opt=""
+    local fspath=""
+    local snname="${1}"
+    local fsname="${2}"
+    local fsname_tr="${fsname//\//_}"
+    local fsfullname=""
+
+    if [ "$1" == "-h" ] ; then
+        echo "fsname [ -o option=value [ -o ... ] ]"
+        return 0
+    fi
+
+    # if fsname and fsname_tr are identical, then we have only the pool fs itself, which is forbidden.
+    if [ "${fsname}" == "${fsname_tr}" ] ; then
+        echo "Error: make_fs() requires at least one '/' in the fs name"
+        return 1
+    fi
+    fsfullname=${poolbase}_${fsname}
+
+    shift
+    shift
+    while [ "$1" == "-o" ] ; do
+        shift
+        opt="${opt} $1"
+        shift
+    done
+    eval fs_${fsname_tr}_opt="\"\${opt}\""
+    eval fs_${fsname_tr}_name="\"\${fsname}\""
+    eval fs_${fsname_tr}_fullname="\"\${fsfullname}\""
+    eval fs_${fsname_tr}_path="\"/Volumes/\${fsfullname}\""
+    eval fs_${fsname_tr}_pool="\"\${fsname%%/\*}\""
+
+    zfs clone ${opt}  ${poolbase}_${snname} ${fsfullname}
+
+    res=$?
+    
+    if [ ${res} -eq 0 ] ; then
+        fss[${fssmax}]=${fsname_tr}
+        eval fs_${fsname_tr}_idx=${fssmax}
+        ((fssmax++))
+    fi
+
+    return ${res}
+}
+
 
 # remove file system from list of known fs
 # args:
