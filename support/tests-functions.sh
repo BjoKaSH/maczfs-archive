@@ -639,6 +639,7 @@ function make_clone_fs() {
         fss[${fssmax}]=${fsname_tr}
         eval fs_${fsname_tr}_idx=${fssmax}
         ((fssmax++))
+        clone_files -c ${snname} ${fsname}
     fi
 
     return ${res}
@@ -663,6 +664,8 @@ function forget_fs() {
         echo "Nothing known about fs ${name}"
         return 1
     fi
+
+    forget_fs_files ${name}
 
     for i in name fullname path pool opt idx ; do
         eval unset fs_${name_tr}_${i}
@@ -730,15 +733,20 @@ function zfs_send() {
 
 # create a (temporary) file of given size
 # args:
-# [ -c comp_factor ] size fs file
+# [ -c comp_factor ] [ -T max_secs ] size fs file [ rel_file_path]
 # -c comp_factor : try to make the file contents compressible by factor comp_factor
 # size  : size of file in bytes, optionaly with multiplier "m" or "k", example: 8m
+# -T max_secs    : spend at most max_secs second, trying to generate $size bytes 
 # fs    : zfs filesystem to place file in.  if special name _temp_ is used, then place file in ${TMPDIR}
-# file  : filename (optionally with path prefix) relative to zfs filesystem
+# file  : filename (optionally with path prefix) relative to zfs filesystem.
+#         this is just a handle to the file, not necessaryly its path, see next argument
+# rel_file_path  : filename and path relative to the file system $fs.  Defaults to $file.
 # globals:
+# (note: ${file} is a sanitized variant of $file from above)
 # file_${file}_size = size of file
 # file_${file}_fs = zfs filessystem
-# file_${file}_name = original file name
+# file_${file}_name = original file name, this is the handle $file from above
+# file_${file}_relpath = filename and path relative to the file system $fs
 # file_${file}_path = full path to file, starting at "/"
 # fs_${fs}_path : path to zfs filesystem
 # files[] : list of all created files
@@ -749,6 +757,7 @@ function make_file() {
     local size=""
     local fs=""
     local filepath=""
+    local filerelpath=""
     local compfact=0
     local count=0
     local sizeflag=""
@@ -756,7 +765,7 @@ function make_file() {
     local maxsecs=0
 
     if [ "$1" == "-h" ] ; then
-        echo "[ -c comp_factor ] size fs file"
+        echo "[ -c comp_factor ] [ -T max_secs ] size fs file [ rel_path ]"
         return 0
     fi
 
@@ -776,6 +785,12 @@ function make_file() {
     fs=${2}
     filename=${3}
     filename_tr=${filename//\//_}
+
+    if [ $# -gt 3 ] ; then
+        filerelpath="${4}"
+    else
+        filerelpath=${3}
+    fi
     
     if [ "${size: -1:1}" == "m" ] ; then
         # 1m bytes makes 1024*256 longs
@@ -795,9 +810,10 @@ function make_file() {
 
     if [ "${fs}" == "_temp_" ] ; then
         filepath=$(new_temp_file)
+        filerelpath=${filepath}
     else
         fspath_v=fs_${fs//\//_}_path
-        filepath=${!fspath_v}/${filename}
+        filepath=${!fspath_v}/${filerelpath}
     fi
     filedir=$(dirname ${filepath})
     if [ ! -e ${filedir} ] ; then
@@ -819,6 +835,7 @@ function make_file() {
         eval file_${filename_tr}_size=${size}
         eval file_${filename_tr}_fs=${fs}
         eval file_${filename_tr}_name=${filename}
+        eval file_${filename_tr}_relpath=${filerelpath}
         eval file_${filename_tr}_path=${filepath}
         eval file_${filename_tr}_ghost=0
 
@@ -835,15 +852,32 @@ function make_file() {
 
 # show all defined files
 # args:
-# [ fsname ]
+# [ fsname ] [ -g ]
 # fsname : only show files on the file system fsname
+# -g : include files in ghost state (implied, if fsname is a snapshot)
 function list_files() {
     local i
     local name
     local fsname=""
+    local showghost=0
+    local tmp_v
 
-    if [ $# -eq 1 ] ; then
-        fsname="${1}"
+    while [ $# -gt 0 ] ; do
+        if [ "${1}" == "-g" ] ; then
+            showghost=1
+            shift
+        elif [ "${1:0:1}" != "-" ] ; then
+            fsname="${1}"
+            shift
+        else
+            echo "list_files(): Unknown flag '$1'"
+            return 1
+        fi
+    done
+
+    if [ "${fsname#*@}" != "${fsname}" ] ; then
+        # name contains "@"
+        showghost=1
     fi
 
     for ((i=0; i < filesmax; i++)) ; do
@@ -856,6 +890,10 @@ function list_files() {
             if [ "${!tmp_v}" != "${fsname}" ] ; then
                 continue
             fi
+        fi
+        tmp_v=file_${name}_ghost
+        if [ ${!tmp_v} -eq 1 -a ${showghost} -eq 0 ] ; then
+            continue
         fi
         echo "File '${name}'"
         print_object file "${name}" name path fs size ghost
@@ -888,10 +926,12 @@ function add_file() {
 
 # copy existing file
 # args:
-# src-file target-fs dest-file
+# src-file target-fs dest-file [ dest-rel-path ]
 # src-file : filename as given to make_file
 # target-fs : zfs filesystem to place file in, as from make_fs
-# dest-file : name of new file, including path relative to file-system
+# dest-file : filename (handle) for the new file. does not need to be a path
+# dest-rel-path : name of new file, including path relative to target
+#                 filesystem.  Defaults to dest-file.
 function copy_file() {
     local srcname=""
     local srcname_tr=""
@@ -901,12 +941,13 @@ function copy_file() {
     local fs="${2}"
     local fs_tr=""
     local destpath=""
+    local destrelpath=""
     local srcidx=0
     local destidx=0
     local name_v=''
 
     if [ "$1" == "-h" ] ; then
-        echo "src-file target-fs dest-file"
+        echo "src-file target-fs dest-file [ dest-rel-path ]"
         return 0
     fi
 
@@ -915,6 +956,12 @@ function copy_file() {
 
     destname=${3}
     destname_tr=${destname//\//_}
+    
+    if [ $# -gt 3 ] ; then
+        destrelpath="${4}"
+    else
+        destrelpath="${3}"
+    fi
     
     if [ "${srcname_tr}" == "${destname_tr}" ] ; then
         echo "Error: test system limitation: can't have to files with same name in different file systems."
@@ -932,6 +979,12 @@ function copy_file() {
         return 1
     fi
 
+    name_v=file_${srcname_tr}_ghost
+    if [ ${!name_v} -eq 1 ] ; then
+        echo "copy_file(): File is not accessible: State is ghost == 1."
+        return 1
+    fi
+
     name_v=file_${srcname_tr}_path
     srcpath=${!name_v}
 
@@ -943,7 +996,7 @@ function copy_file() {
     
     fs_tr=${fs//\//_}
     name_v=fs_${fs_tr}_path
-    destpath="${!name_v}/${destname}"
+    destpath="${!name_v}/${destrelpath}"
 
     cp "${srcpath}" "${destpath}"
     res=$?
@@ -954,6 +1007,7 @@ function copy_file() {
         eval file_${destname_tr}_fs=${fs}
         eval file_${destname_tr}_name=${destname}
         eval file_${destname_tr}_path=${destpath}
+        eval file_${destname_tr}_relpath=${destrelpath}
         eval file_${destname_tr}_ghost=0
 
         files[${destidx}]=${destname_tr}
@@ -1031,6 +1085,95 @@ function remove_file() {
     fi
 
     return ${res}
+}
+
+
+# dublicate file meta data when creating a snapshot or when cloning a
+# snapshot into a new fs.
+# args:
+# { -c | -s } old-name new-name
+# -c  : a napshot is cloned
+# -s  : a file system is snapshotted
+# old-name : old filesystem or snapshot name
+# new-name : new snapshot or filesystem name
+# snapshot names include the pool and filesystem part, e.g. p1/fs2@sn4
+function clone_files() {
+    local oldname=$2
+    local newname=$3
+    local clonepath
+    local idx=0
+    local attr=""
+    local oldidxmax=${filesmax}
+    local newfn
+    local newfn_tr
+    local oldfn
+    local oldfn_tr
+    local tmp_v
+
+    if [ "$1" == "-c" ] ; then
+        tmp_v=fs_${newname//\//_}_path
+        clonepath=${!tmp_v}
+    fi
+
+    for ((idx=0; idx < oldidxmax; idx++)) ; do
+        oldfn_tr=${files[${idx}]}
+        tmp_v=file_${oldfn_tr}_fs
+        if [ "${!tmp_v}" == "${oldname}" ] ; then
+            # candidate
+            if [ "$1" == "-s" ] ; then
+                tmp_v=file_${oldfn_tr}_ghost
+                if [ ${!tmp_v} -eq 1 ] ; then
+                    # ghost files are not visible and as such not part of the new snapshot
+                    continue;
+                fi
+                tmp_v=file_${oldfn_tr}_name
+                newfn=${!tmp_v}@${newname#*@}
+            else
+                tmp_v=file_${oldfn_tr}_name
+                oldfn=${!tmp_v}
+                newfn=${newname}/${oldfn%@*}
+            fi
+            newfn_tr=${newfn//\//_}
+            for attr in size relpath path compfact; do
+                tmp_v=file_${oldfn_tr}_${attr}
+                eval file_${newfn_tr}_${attr}=${!tmp_v}
+            done
+            eval file_${newfn_tr}_fs=${newname}
+            eval file_${newfn_tr}_name=${newfn}
+            if [ "$1" == "-s" ] ; then
+                eval file_${newfn_tr}_ghost=1
+            else
+                eval file_${newfn_tr}_ghost=0
+                tmp_v=file_${oldfn_tr}_relpath
+                eval file_${newfn_tr}_path=${clonepath}/${tmp_v}
+            fi
+            eval file_${newfn_tr}_idx=${filesmax}
+            files[${filesmax}]=${newfn_tr}
+            ((filesmax++))
+        fi
+    done
+}
+
+
+# forget all files on a filesystem, snapshot or clone.
+# args:
+# fs-name
+# fs-name : old filesystem, clone or snapshot name
+# snapshot names include the pool and filesystem part, e.g. p1/fs2@sn4
+function forget_fs_files() {
+    local oldname=$1
+    local idx
+    local tmp_v
+    local oldidxmax=${filesmax}
+
+    for ((idx=0; idx < oldidxmax; idx++)) ; do
+        oldfn_tr=${files[${idx}]}
+        tmp_v=file_${oldfn_tr}_fs
+        if [ "${!tmp_v}" == "${oldname}" ] ; then
+            # candidate
+            forget_file_impl ${idx}  ${oldfn_tr}
+        fi
+    done
 }
 
 
@@ -1118,6 +1261,19 @@ function forget_file() {
         return 1
     fi
 
+    forget_file_impl ${fileidx}  ${filename_tr}
+}
+
+# internal backend form forget_file
+# args:
+# idx fn_tr
+# idx  : index into files array
+# fn_tr: translate file name
+function forget_file_impl() {
+    local filename_tr="$2"
+    local fileidx=$1
+    local i
+    
     for i in size fs name path compfact idx ghost; do
         eval unset file_${filename_tr}_${i}
     done
@@ -2223,7 +2379,7 @@ function print_object() {
         attr="$*"
     else
         if [ "${prefix}" == "file" ] ; then
-            attr="name ghost fs path"
+            attr="name ghost fs relpath path"
         elif [ "${prefix}" == "fs" ] ; then
             attr="name fullname pool path"
         elif [ "${prefix}" == "pool" ] ; then

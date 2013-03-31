@@ -54,9 +54,12 @@ by "_".
 file_<id>_size : size of file in bytes
 file_<id>_fs   : ZFS file system where the file is stored, empty if not
                  on a ZFS file system managed by the test system
-file_<id>_name : original file name, including path relative the ZFS 
-                 file system or relative to "/" if not on a test system 
-                 managed ZFS file system
+file_<id>_name : original file name, serves as a handle, can be
+                 structured as a file path, but does not necessary
+                 denote a real file path.
+file_<id>_relpath : path to file, relative to the ZFS file system fs or
+                 relative to "/" if not on a test system managed ZFS
+                 file system
 file_<id>_path : full path to file, starting at "/"
 file_<id>_compfact : standart gzip compression factor
 file_<id>_idx  : numeric index into files array for this file.
