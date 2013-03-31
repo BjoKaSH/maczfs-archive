@@ -729,6 +729,7 @@ function make_file() {
     local count=0
     local sizeflag=""
     local fspath_v=""
+    local maxsecs=0
 
     if [ "$1" == "-h" ] ; then
         echo "[ -c comp_factor ] size fs file"
@@ -738,6 +739,12 @@ function make_file() {
     if [ "${1}" == "-c" ] ; then
         shift
         compfact=${1}
+        shift
+    fi
+
+    if [ "${1}" == "-T" ] ; then
+        shift
+        maxsecs=${1}
         shift
     fi
 
@@ -777,10 +784,10 @@ function make_file() {
     fi
 
     if [ ${compfact} -eq 0 ] ; then
-        ${genrand_bin} -v -S ${genrand_state} -c ${count} ${sizeflag} -o >${filepath}
+        ${genrand_bin} -v -S ${genrand_state} -T ${maxsecs} -c ${count} ${sizeflag} -o >${filepath}
         res=$?
     else
-        ${genrand_bin} -v -S ${genrand_state} -c ${size} -b -o -t >${filepath}
+        ${genrand_bin} -v -S ${genrand_state} -T ${maxsecs} -c ${size} -b -o -t >${filepath}
         res=$?
     fi
     

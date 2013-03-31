@@ -311,7 +311,7 @@ done
 run_ret 0 "Checking pool status" zpool status -v ${pool1}
 
 # make a 1g file, so following attache will take some time
-run_ret 0 "Making 1 GB file, so the following resilver when converting to a mirror will take some time."  make_file 1024m p1 large1g
+run_ret 0 "Making 1 GB file (or 30 secs worth of data), so the following resilver when converting to a mirror will take some time."  make_file -T 30 1024m p1 large1g
 
 # - make first vdev "vd1" into mirror, adding disk-based vdev "vd4"
 run_ret 0 "Creating new disk vd4" make_disk 5 vd4 8
