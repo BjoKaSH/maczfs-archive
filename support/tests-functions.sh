@@ -316,6 +316,27 @@ function new_temp_file() {
 }
 
 
+function new_fifo() {
+    local filename=$(make_name 8)
+    local filepath=${TMPDIR}/mzt.${filename}
+    local res=0
+
+    while [ -e "${filepath}" ] ; do
+        filename=$(make_name 8)
+        filepath=${TMPDIR}/mzt.${filename}
+    done
+    mkfifo ${filepath}
+    res=$?
+
+    if [ $res -eq 0 ] ; then
+        echo "${filepath}"
+    else
+        echo "Error: generating fifo ${filepath} (${filename}) failed" >&2
+    fi
+    return $res
+}
+
+
 # generate single random number in given interval
 # args:
 # min max
@@ -327,7 +348,7 @@ function get_rand_number() {
         upperlimit="-w"
     fi
 
-    ${genrand_bin}  -S {genrand_state} -d ${upperlimit} -m $1 -M $2
+    ${genrand_bin}  -S ${genrand_state} -d ${upperlimit} -c 1 -m $1 -M $2
     return 0
 }
 
@@ -361,7 +382,7 @@ function make_name() {
         len=${min}
     fi
 
-    ${genrand_bin} -S ${genrand_state} -c ${len} -b -a
+    ${genrand_bin} -S ${genrand_state} -c ${len} -b -o -m 65 -M 90
 
     return 0
 }
@@ -545,7 +566,7 @@ function make_fs() {
     shift
     while [ "$1" == "-o" ] ; do
         shift
-        opt="${opt} $1"
+        opt="${opt} -o $1"
         shift
     done
     eval fs_${fsname_tr}_opt="\"\${opt}\""
@@ -631,16 +652,24 @@ function make_clone_fs() {
 function forget_fs() {
     local i
     local name="${1}"
+    local name_tr="${1//\//_}"
     local fsidx
     local tmp_v
 
-    tmp_v=fs_${name}_idx
+    tmp_v=fs_${name_tr}_idx
     fsidx=${!tmp_v}
 
+    if [ -z "${fsidx}" ] ; then
+        echo "Nothing known about fs ${name}"
+        return 1
+    fi
+
     for i in name fullname path pool opt idx ; do
-        eval unset fs_${name}_${i}
+        eval unset fs_${name_tr}_${i}
     done
 
+    fss[${fsidx}]=""
+    
     return 0
 }
 
@@ -674,7 +703,6 @@ function list_fss() {
         echo
     done
 }
-
 
 # create a (temporary) file of given size
 # args:
@@ -749,10 +777,10 @@ function make_file() {
     fi
 
     if [ ${compfact} -eq 0 ] ; then
-        ${genrand_bin} -S ${genrand_state} -c ${count} ${sizeflag} -o >${filepath}
+        ${genrand_bin} -v -S ${genrand_state} -c ${count} ${sizeflag} -o >${filepath}
         res=$?
     else
-        ${genrand_bin} -S ${genrand_state} -c ${size} -b -o -t >${filepath}
+        ${genrand_bin} -v -S ${genrand_state} -c ${size} -b -o -t >${filepath}
         res=$?
     fi
     
@@ -959,7 +987,7 @@ function remove_file() {
         return 0
     fi
     
-    rm -i "${filepath}"
+    rm "${filepath}"
     res=$?
     if [ ${res} -eq 0 -a ! -e "${filepath}" ] ; then
         if [ ${keepmeta} -eq 0 ] ; then
@@ -986,7 +1014,7 @@ function resurrect_file() {
     local filename=""
     local filename_tr=""
     local filepath=""
-    local filepath_v=''
+    local tmp_v=''
     local fileidx=0
     local keepmeta=0
 
@@ -1015,13 +1043,11 @@ function resurrect_file() {
         return 1
     fi
 
-    tmp_v=file_${filename_tr}_path
-    filepath="${!tmp_v}"
-
     if [ $# -eq 2 ] ; then
         # new fs path
-        tmp_v=file_${filename_tr}_fs
-        eval filepath=${poolbase}_${2}/\${filepath\#${poolbase}_${!tmp_v}/}
+        tmp_v=fs_${2//\//_}_path
+        eval filepath=${!tmp_v}/${filename}
+        # ${poolbase}_${2}/\${filepath\#${poolbase}_${!tmp_v}/}
         eval file_${filename_tr}_fs="${2}"
         eval file_${filename_tr}_path="${filepath}"
     fi
@@ -2078,7 +2104,7 @@ function run_check_regex() {
 #
 # example: "pool p1 vdevs" will print the content of the variable "pool_p1_vdevs".
 function get_val() {
-    local name="$1_$2_$3"
+    local name=''
     local intro=''
 
     if [ "$1" == "-h" ] ; then
@@ -2086,14 +2112,20 @@ function get_val() {
         return 0
     fi
 
+    if [ "$1" == fs ] ; then
+        name="$1_${2//\//_}_$3"
+    else
+        name="$1_$2_$3"
+    fi
+
     if [ $# -gt 3 ] ; then
         shift
         shift
         shift
-        intro="$*"
+        echo "$*" "${!name}"
+    else
+        echo "${!name}"
     fi
-    
-    echo "${intro}" "${!name}"
 }
 
 
@@ -2107,6 +2139,7 @@ function print_object() {
     local i
     local id="$2"
     local prefix="$1"
+    local attr=''
 
     if [ "$1" == "-h" ] ; then
         echo "object-type id attribute ..."
@@ -2116,7 +2149,21 @@ function print_object() {
     shift
     shift
 
-    for i in $* ; do
+    if [ $# -gt 0 ] ; then
+        attr="$*"
+    else
+        if [ "${prefix}" == "file" ] ; then
+            attr="name ghost fs path"
+        elif [ "${prefix}" == "fs" ] ; then
+            attr="name fullname pool path"
+        elif [ "${prefix}" == "pool" ] ; then
+            attr="fullname vdevs path"
+        elif [ "${prefix}" == "disk" ] ; then
+            attr="disk attached path"
+        fi
+    fi
+
+    for i in ${attr} ; do
         get_val ${prefix} "${id}" ${i} "${i} : "
     done
 }
