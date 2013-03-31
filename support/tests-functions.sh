@@ -2506,6 +2506,63 @@ function tests_func_cleanup() {
 }
 
 
+function interact() {
+    local cmd
+    local args
+
+    read -p "(check) " cmd args
+    while [ "${cmd}" != "q" ] ; do
+        if [ "${cmd}" == "help" ] ; then
+            cat <<EOF
+make_disk()
+destroy_disk()
+list_disks()
+new_temp_file()
+new_fifo()
+get_rand_number()
+make_name()
+make_pool()
+destroy_pool()
+list_pools()
+make_fs()
+make_clone_fs()
+forget_fs()
+list_fss()
+zfs_send()
+make_file()
+list_files()
+add_file()
+copy_file()
+remove_file()
+clone_files()
+forget_fs_files()
+resurrect_file()
+forget_file()
+run_cmd()
+attach_disk()
+detach_disk()
+run_cmd_log()
+print_run_cmd_logs()
+print_count_ok_fail()
+run_ret()
+run_ret_start()
+run_ret_next()
+run_ret_end()
+run_abort()
+run_check_regex()
+get_val()
+print_object()
+tests_func_cleanup()
+
+EOF
+            continue
+        fi
+        eval ${cmd} ${args}
+        read -p "(check) " cmd args
+    done
+}
+
+
 if [ -z "${tests_func_init_done:-}" ] ; then
     echo "run 'tests_func_init' to initialize test system."
 fi
