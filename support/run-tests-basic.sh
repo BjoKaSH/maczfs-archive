@@ -159,6 +159,7 @@ run_ret 0 -t 2 "Copying file to pool fs" copy_file tf0 p1 tf1
 
 run_ret 0 "Creating snapshot sn1"  zfs snapshot -r  ${pool1}@sn1
 run_check_regex 0 "Verifying snapshot is present"  "${pool1}@sn1" zfs list -t snapshot
+clone_files -s  p1  p1@sn1
 
 run_ret 0 "Seting copies property to 2" zfs set copies=2 ${pool1}
 run_check_regex 0 "Verifying copies property"  "2" zfs get copies ${pool1}
@@ -178,6 +179,7 @@ run_ret 0 "Writing same 8m file again, as tf3" copy_file tf0 p1 tf3
 # - create snapshot "sn2"
 run_ret 0 "Creating snapshot sn2"  zfs snapshot -r  ${pool1}@sn2
 run_check_regex 0 "Verifying snapshot is present"  "${pool1}@sn2" zfs list -t snapshot
+clone_files -s  p1  p1@sn2
 
 
 # - create dump of "sn1" (zfs send)
@@ -198,6 +200,7 @@ run_ret 0 "Removing tf3"  remove_file -k tf3
 # - create snapshot "sn3"
 run_ret 0 "Creating snapshot sn3"  zfs snapshot -r  ${pool1}@sn3
 run_check_regex 0 "Verifying snapshot is present"  "${pool1}@sn3" zfs list -t snapshot
+clone_files -s  p1  p1@sn3
 
 
 # - create incremental dump of "sn3" against "sn2"
@@ -228,6 +231,7 @@ run_ret 0 "Destroying snapshot sn2" zfs destroy ${pool1}@sn2
 #diff_fs_stats  stat_p1_sn2_diff1  stat_p1_sn2_a  stat_p1_sn2_b
 #print_fs_stats stat_p1_sn2_diff1
 #run_ret_end 0 -t 3 "verifying fs size" check_sizes_fs stat_p1_tf1_diff2 -8m
+forget_fs_files p1@sn2
 
 # - unmount
 # - rollback to "sn3"
@@ -342,6 +346,7 @@ run_ret 0 "Checking pool status" zpool status -v ${pool1}
 # - create snapshot "sn4"
 run_ret 0 "Creating snapshot sn4" zfs snapshot ${pool1}@sn4
 run_check_regex 0 "Verifying snapshot is present"  "${pool1}@sn4" zfs list -t snapshot
+clone_files -s  p1  p1@sn4
 
 
 # - create set of 16 random files in one directory, file content length
@@ -365,6 +370,7 @@ run_check_regex 0 "Verifying it is resilvering" "resilver" zpool status ${pool1}
 # - create snapshot "sn5"
 run_ret 0 "Creating snapshot sn5" zfs snapshot ${pool1}@sn5
 run_check_regex 0 "Verifying snapshot is present"  "${pool1}@sn5" zfs list -t snapshot
+clone_files -s  p1  p1@sn5
 
 
 # - dump snapshot "sn4" incremental against "sn3"
@@ -437,11 +443,11 @@ run_ret 0 "cloning sn3 as fs1sn3" make_clone_fs p1@sn3 p1/fs1sn3
 
 run_check_regex 0 "Verifying mount" "${pool1}/fs1sn3" mount
 
-run_ret 0 "" resurrect_file tf1  p1/fs1sn3
+#run_ret 0 "" resurrect_file tf1  p1/fs1sn3
 
-run_ret 0 "Checking file tf3 re-apperaed and has right content"  cmp ${file_tf1_path} ${file_tf0_path}
-
-run_ret 0 "Deleting tf3 from clone" remove_file -k tf3
+echo run_ret 0 "Checking file tf1 re-apperaed and has right content"  cmp $(get_val file p1/fs1sn3/tf1 path) ${file_tf0_path}
+run_ret 0 "listing clone" ls -laRF $(get_val fs p1/fs1sn3 path)
+echo run_ret 0 "Deleting tf3 from clone" remove_file -k tf3
 
 run_ret 0 "Destroying clone" zfs destroy ${pool1}/fs1sn3
 
