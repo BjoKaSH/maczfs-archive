@@ -1870,16 +1870,31 @@ function print_run_cmd_logs() {
 # if argument is 0, print and count success, else print and count
 # failure.
 # args:
-# { 0 | n }
+# { 0 | n } [ s ]
+# globals:
 # okcnt   : incremented by 1, if argument is 0
 # failcnt : incremented by 1, if argument is not 0
+# tottests: updated if less than curtest
 function print_count_ok_fail() {
-    if [ $1 -eq 0 ] ; then
-        echo "ok (${curtest}/${tottests})"
-        ((okcnt++))
+    if [ ${curtest} -gt ${tottests} ] ; then
+        tottests=${curtest}
+    fi
+    if [ $# -eq 2 ] ; then
+        if [ $1 -eq 0 ] ; then
+            echo "ok (${curtest}.${cursubtest}/${tottests})"
+            ((subokcnt++))
+        else
+            echo "fail (${curtest}.${cursubtest}/${tottests})"
+            ((subfailcnt++))
+        fi
     else
-        echo "fail (${curtest}/${tottests})"
-        ((failcnt++))
+        if [ $1 -eq 0 ] ; then
+            echo "ok (${curtest}/${tottests})"
+            ((okcnt++))
+        else
+            echo "fail (${curtest}/${tottests})"
+            ((failcnt++))
+        fi
     fi
 }
 
@@ -1908,6 +1923,7 @@ function run_ret() {
     local subtestarg=""
     local retval=0
     local rrmode=0
+    local counter=""
 
     if [ "${exp_ret}" == "-h" ] ; then
         echo "expected_retval [ -t subtest ] message command [ args ]"
@@ -1919,6 +1935,8 @@ function run_ret() {
         rrmode=1
         cursubtest=1
         subtest=1
+        subokcnt=0
+        subfailcnt=0
         subtestarg="-t 1"
         shift
         exp_ret=$1
@@ -1952,6 +1970,9 @@ function run_ret() {
         shift
         message="$1"
         shift
+        if [ ${rrmode} -eq 0 ] ; then
+            rrmode=2
+        fi
     fi
 
     if [ -z "${message}" ] ; then
@@ -1969,8 +1990,20 @@ function run_ret() {
         run_cmd_log ${subtestarg} "$@"
         retval=$?
 
-        if [ ${rrmode} -eq 0 -o ${rrmode} -eq 3 ] ; then
-            if [ ${retval} -eq ${exp_ret} ] ; then
+        if [ ${rrmode} -eq 0 ] ; then
+            counter=""
+        else
+            counter="s"
+        fi
+
+        if [ ${retval} -eq ${exp_ret} ] ; then
+            print_count_ok_fail 0 ${counter}
+        else
+            print_count_ok_fail 1 ${counter}
+        fi
+
+        if [ ${rrmode} -eq 3 ] ; then
+            if [ ${subfailcnt} -eq 0 ] ; then
                 print_count_ok_fail 0
             else
                 print_count_ok_fail 1
@@ -1985,8 +2018,14 @@ function run_ret() {
     fi
 
     last_cmd_retval=${retval}
-    test ${retval} -eq ${exp_ret} 
-    retval=$?
+
+    if [ ${rrmode} -ne 3 ] ; then
+        test ${retval} -eq ${exp_ret}
+        retval=$?
+    else
+        test ${subfailcnt} -eq 0
+        retval=$?
+    fi
 
     if [ ${stop_on_fail} -eq 1 -a ${retval} -ne 0 ] ; then
         exit 1
