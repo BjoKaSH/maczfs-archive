@@ -73,6 +73,9 @@ cleanup=0
 failcnt=0
 okcnt=0
 tottests=0
+subfailcnt=0
+subokcnt=0
+cursubtest=0
 curtest=0
 
 if [ ${has_fstest} -eq 1 ] ; then
