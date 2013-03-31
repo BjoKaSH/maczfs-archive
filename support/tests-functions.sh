@@ -704,6 +704,30 @@ function list_fss() {
     done
 }
 
+# create a stream from a snapshot
+# args:
+# destfile zfs-send-args ...
+#
+function zfs_send() {
+    local destpath=$1
+    local args=""
+
+    shift
+
+    while [ $# -ge 1 ] ; do
+        if [ "${1:0:1}" == "-" ] ; then
+            args="${args} ${1}"
+            shift
+        else
+            # everything else should be a snapshot name -> remap
+            args="${args} ${poolbase}_${1}"
+            shift
+        fi
+    done
+
+    zfs send ${args} >${destpath}
+}
+
 # create a (temporary) file of given size
 # args:
 # [ -c comp_factor ] size fs file

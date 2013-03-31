@@ -178,10 +178,8 @@ run_check_regex 0 "Verifying snapshot is present"  "${pool1}@sn2" zfs list -t sn
 
 
 # - create dump of "sn1" (zfs send)
-stream1fifo=$(new_fifo)
 stream1=$(new_temp_file)
-cat ${stream1fifo} >${stream1} &
-run_ret 0 "creating dump of snapshot sn1 ..."  zfs send ${pool1}@sn1 >${stream1fifo}
+run_ret 0 "creating dump of snapshot sn1 ..."  zfs_send ${stream1} p1@sn1
 
 
 # - delete "tf3"
@@ -200,10 +198,8 @@ run_check_regex 0 "Verifying snapshot is present"  "${pool1}@sn3" zfs list -t sn
 
 
 # - create incremental dump of "sn3" against "sn2"
-stream2fifo=$(new_fifo)
 stream2=$(new_temp_file)
-cat ${stream2fifo} >${stream2} &
-run_ret 0 "creating dump of snapshot sn3 against sn2 ..."  zfs send -i ${pool1}@sn2 ${pool1}@sn3 >${stream2fifo}
+run_ret 0 "creating dump of snapshot sn3 against sn2 ..."  zfs_send ${stream2} -i p1@sn2 p1@sn3
 
 
 # - delete "tf1"
@@ -217,10 +213,8 @@ run_ret 0 "Removing tf1"  remove_file -k tf1
 
 
 # - create incremental dump of "sn2" against "sn1"
-stream3fifo=$(new_fifo)
 stream3=$(new_temp_file)
-cat ${stream3fifo} >${stream3} &
-run_ret 0 "creating dump of snapshot sn2 against sn1 ..."  zfs send -i ${pool1}@sn1 ${pool1}@sn2 >${stream3fifo}
+run_ret 0 "creating dump of snapshot sn2 against sn1 ..."  zfs_send ${stream3} -i p1@sn1 p1@sn2
 
 
 # - destroy "sn2"
@@ -371,10 +365,8 @@ run_check_regex 0 "Verifying snapshot is present"  "${pool1}@sn5" zfs list -t sn
 
 
 # - dump snapshot "sn4" incremental against "sn3"
-stream4fifo=$(new_fifo)
 stream4=$(new_temp_file)
-cat ${stream4fifo} >${stream4} &
-run_ret 0 "creating dump of snapshot sn4 against sn3 ..."  zfs send -i ${pool1}@sn3 ${pool1}@sn4 >${stream4fifo}
+run_ret 0 "creating dump of snapshot sn4 against sn3 ..."  zfs_send ${stream4} -i p1@sn3 p1@sn4
 
 
 # - replace 1st vdev "vd1" with new disk-based vdev "vd6"
