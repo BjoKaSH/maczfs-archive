@@ -462,7 +462,9 @@ int parse_seed(const char *str) {
 }
 
 int main(int argc, char **argv) {
-  
+  unsigned long long percent_step=0;
+  unsigned long long percent_step_cnt=0;
+
   int c=0;
   int opt_unknown = 0;
   while (c != -1 && opt_unknown == 0) {
@@ -623,6 +625,9 @@ int main(int argc, char **argv) {
     }
   }
 
+  percent_step=opt_count/100;
+  percent_step_cnt=percent_step;
+
   while (opt_count > 0) {
     unsigned long tmp_val = get_val_lcg();
     if (opt_mode_fmt == 'o') {
@@ -662,6 +667,13 @@ int main(int argc, char **argv) {
       }
     }
     opt_count -= 1;
+	if (opt_verb > 0 && percent_step > 0) {
+	  if (percent_step_cnt-- == 0) {
+		fprintf(stderr, ".");
+		fflush(stderr);
+		percent_step_cnt = percent_step;
+	  }
+	}
   }
 
   if (opt_mode_fmt == 'a') {
