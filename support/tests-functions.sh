@@ -1804,9 +1804,9 @@ function partion_disk() {
 # "err", respectively.
 # args:
 # [ -t subtest ] command [ args .. ]
-# -t subtest  : sub test number, if present and > 0 suppresses increment of curtest
+# -t subtest  : sub test number, if present and > 1 suppresses increment of curtest
 # globals:
-# curtest : incremented by 1, if subnum not given or 0
+# curtest : incremented by 1, if subnum not given or less than 2
 function run_cmd_log() {
     local subnum=0
     local logname=""
@@ -1820,7 +1820,7 @@ function run_cmd_log() {
         shift
         subnum=$1
         shift
-        if [ ${subnum} -eq 0 ] ; then
+        if [ ${subnum} -lt 2 ] ; then
             ((curtest++))
         fi
         logname=${curtest}.${subnum}

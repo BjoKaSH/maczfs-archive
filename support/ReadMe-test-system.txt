@@ -147,8 +147,11 @@ it.  The following functions are defined:
    (uses run_cmd)
    Run then given command and log the command and any output generated 
    on stderr and stdout to ${tests_logdir}/test_${curtest}.X where X is 
-   "cmd", "out" or "err", respectively.  If "it subtest" is given, then 
+   "cmd", "out" or "err", respectively.  If "-t subtest" is given, then 
    logs are written to ${tests_logdir}/test_${curtest}.${subtest}.X instead.
+   If "-t subtest" is not given, or if "subtest" is 1, then the value of 
+   ${curtest} is increment before constructing the log file names.  The
+   subtest number is one-based, i.e. the value 0 is not allowed.
 
  - run_ret  expected_retval [ -t subtest ] message command [ args ]
    (uses run_cmd or run_cmd_log (depending on message and subtest being 
