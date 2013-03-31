@@ -494,6 +494,7 @@ function destroy_pool() {
     poolfullname="${!tmp_v}"
 
     run_cmd_log zpool destroy -f ${poolfullname}
+    res=$?
 
     for ((i=0; i < fssmax; i++)) ; do
         if [ "${fss[i]}" == "" ] ; then
@@ -513,7 +514,7 @@ function destroy_pool() {
 
     pools[${poolidx}]=""
     
-    return 0
+    return $res
 }
 
 
