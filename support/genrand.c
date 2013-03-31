@@ -31,7 +31,7 @@ extern int optopt;
 extern int opterr;
 extern int optreset;
 
-char *option_string = "s:S:m:M:c:bwldhaotHv";
+char *option_string = "s:S:m:M:c:T:bwldhaotHv";
 
 static struct option long_options[] = {
 	{"seed", required_argument, 0, 's'},
@@ -39,6 +39,7 @@ static struct option long_options[] = {
 	{"min", required_argument, 0, 'm'},
 	{"max", required_argument, 0, 'M'},
 	{"count", required_argument, 0, 'c'},
+	{"maxtime", required_argument, 0, 'T'},
 	{"bytes", no_argument, 0, 'b'},
 	{"words", no_argument, 0, 'w'},
 	{"longs", no_argument, 0, 'l'},
@@ -61,6 +62,7 @@ void print_help(void) {
   " -m minvalue : minimal output vale to produce, --min\n"
   " -M maxvalue : maximum output value to produce, --max\n"
   " -c num_units : number of output data units, --count\n"
+  " -T max_sec   : produce data for atmost max_sec seconds, --maxtime\n"
   " -b : output bytes, --bytes\n"
   " -w : output words (16-bits), --words\n"
   " -l : output longs (32-bits), --longs\n"
@@ -86,6 +88,7 @@ char *opt_seed = 0;
 unsigned long opt_min = 0;
 unsigned long opt_max = 0;
 unsigned long long opt_count = 0;
+time_t opt_max_sec = 0;
 char *opt_statefile = 0;
 unsigned long long opt_seed_lcg = 0;
 unsigned long long opt_seed_lfsr = 0;
@@ -464,6 +467,9 @@ int parse_seed(const char *str) {
 int main(int argc, char **argv) {
   unsigned long long percent_step=0;
   unsigned long long percent_step_cnt=0;
+  time_t start_time=0;
+  unsigned long time_step=100;
+  unsigned long time_step_cnt=100;
 
   int c=0;
   int opt_unknown = 0;
@@ -487,6 +493,9 @@ int main(int argc, char **argv) {
 			break;
 		case 'c':
 			opt_count = atoll(optarg);
+			break;
+		case 'T':
+			opt_max_sec = atol(optarg);
 			break;
 		case 'l':
       opt_mode_size_bits += 16;  /* mode_size_bits is pre-initialized with 8 */
@@ -627,7 +636,10 @@ int main(int argc, char **argv) {
 
   percent_step=opt_count/100;
   percent_step_cnt=percent_step;
-
+  if (opt_max_sec > 0) {
+    start_time = time(0);
+    time_step_cnt = 0;
+  }
   while (opt_count > 0) {
     unsigned long tmp_val = get_val_lcg();
     if (opt_mode_fmt == 'o') {
@@ -667,6 +679,20 @@ int main(int argc, char **argv) {
       }
     }
     opt_count -= 1;
+
+    if ( (opt_max_sec > 0) && (time_step_cnt-- == 0) ) {
+	  time_t time_temp = time(0);
+	  if (time_temp == start_time) {
+		/* still in the same second -> increase units/second estimate. */
+		time_step += 100;
+		time_step_cnt = 100;
+	  } else {
+		time_step_cnt = time_step + time_step/2;
+		if ( (time_temp - start_time) >= opt_max_sec)
+		  break;
+	  }
+	}
+
 	if (opt_verb > 0 && percent_step > 0) {
 	  if (percent_step_cnt-- == 0) {
 		fprintf(stderr, ".");
