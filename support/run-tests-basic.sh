@@ -72,10 +72,10 @@ source ./support/tests-functions.sh
 cleanup=0
 failcnt=0
 okcnt=0
-tottests=0
 subfailcnt=0
 subokcnt=0
 cursubtest=0
+tottests=82
 curtest=0
 
 if [ ${has_fstest} -eq 1 ] ; then
@@ -297,6 +297,7 @@ run_ret 0 "Checking pool status" zpool status -v ${pool1}
 
 # - replace 2nd drive with file-based vdev "vd3"
 run_ret_start 0 "Replacing vd2: making new file-vdev"  make_file 1m _temp_ vd3file
+echo "Growing file for new vdev to 3G. This may take some minutes ..."
 dd if=/dev/zero of=${file_vd3file_path} bs=$((1024*1024)) oseek=2048 count=1024
 run_ret_end 0 "Initiating disk replacement"  zpool replace ${pool1} ${disk_vd2_disk}s2 ${file_vd3file_path}
 
