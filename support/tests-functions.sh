@@ -686,6 +686,7 @@ function list_fss() {
     local i
     local name
     local poolname=""
+    local tmp_v
     
     if [ $# -eq 1 ] ; then
         poolname="${1}"
@@ -1039,6 +1040,7 @@ function remove_file() {
     local filepath_v=''
     local fileidx=0
     local keepmeta=0
+    local tmp_v
 
     if [ "$1" == "-h" ] ; then
         echo "filename"
