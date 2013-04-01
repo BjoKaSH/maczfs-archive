@@ -189,6 +189,7 @@ function damage_disk() {
     local maxiterations
     local minsize
     local maxsize
+    local was_attached
     
 
     if [ "$1" == "-h" ] ; then
@@ -428,6 +429,8 @@ function make_pool() {
     local res=0
     local i=''
     local realvdevs=''
+    local disk_v
+    local tmp
 
     if [ "$1" == "-h" ] ; then
         echo "poolname [ -o option=value [ -o ... ] ] vdevs ..."
@@ -806,6 +809,8 @@ function make_file() {
     local sizeflag=""
     local fspath_v=""
     local maxsecs=0
+    local filedir
+    local res=0
 
     if [ "$1" == "-h" ] ; then
         echo "[ -c comp_factor ] [ -T max_secs ] size fs file [ rel_path ]"
@@ -993,6 +998,7 @@ function copy_file() {
     local srcidx=0
     local destidx=0
     local name_v=''
+    local res=0
 
     if [ "$1" == "-h" ] ; then
         echo "src-file target-fs dest-file [ dest-rel-path ]"
@@ -1087,6 +1093,7 @@ function remove_file() {
     local fileidx=0
     local keepmeta=0
     local tmp_v
+    local res=0
 
     if [ "$1" == "-h" ] ; then
         echo "[ -k ] filename"
@@ -1219,6 +1226,7 @@ function forget_fs_files() {
     local idx
     local tmp_v
     local oldidxmax=${filesmax}
+    local oldfn_tr
 
     if [ "$1" == "-h" ] ; then
         echo "fs_name"
@@ -1508,6 +1516,8 @@ function get_fs_stats() {
     local tmp_res
     local idx2=0
     local i
+    local tmp_val
+    local unit
 
     if [ "$1" == "-h" ] ; then
         echo "destvar fs"
@@ -1705,6 +1715,7 @@ function diff_fs_stats() {
 function check_sizes_fs() {
     local compfact=0
     local size=0
+    local sizecomp
 
     if [ "$1" == "-h" ] ; then
         echo "[ -c comp_factor ] fs-diff-array  size"
@@ -1791,6 +1802,10 @@ function run_cmd() {
     local errname=''
     local cmd=''
     local usage_err=0
+    local outfile
+    local errfile
+    local retval
+    local idx
 
     if [ "$1" == "-h" ] ; then
         echo "[ --outname tmpfile | --outarray varname ] [ --errname tmpfile | --errarray varname ] command [ args ... ]"
@@ -1931,6 +1946,7 @@ function attach_disk() {
     local attached_v=disk_${name}_attached
     local attached=${!attached_v}
     local outfile=""
+    local tmpdiskval
 
     if [ "$1" == "-h" ] ; then
         echo "diskname"
@@ -2106,6 +2122,8 @@ function run_cmd_log() {
 # args:
 # [ -t subtest ]
 # -t subtest  : sub test number to use
+# globals:
+# curtest
 function print_run_cmd_logs() {
     local subtest=0
     local logname=""
@@ -2141,6 +2159,10 @@ function print_run_cmd_logs() {
 # okcnt   : incremented by 1, if argument is 0
 # failcnt : incremented by 1, if argument is not 0
 # tottests: updated if less than curtest
+# curtest
+# cursubtest
+# subokcnt
+# subfailcnt
 function print_count_ok_fail() {
     if [ ${curtest} -gt ${tottests} ] ; then
         tottests=${curtest}
@@ -2182,6 +2204,9 @@ function print_count_ok_fail() {
 # curtest : incremented by 1, if message given and subtest > 0 or not present
 # okcnt   : incremented by 1, if message given and return value matches
 # failcnt : incremented by 1, if message given and return value dose not match
+# cursubtest
+# subokcnt
+# subfailcnt
 function run_ret() {
     local exp_ret=$1
     local message="$2"
@@ -2345,6 +2370,11 @@ function run_abort() {
 #
 # args:
 # expected_retval message [ '-n' ] regex command [ args ... ]
+# globals:
+# last_cmd_retval
+# curtest : incremented by 1, if message given and subtest > 0 or not present
+# okcnt   : incremented by 1, if message given and return value matches
+# failcnt : incremented by 1, if message given and return value dose not match
 function run_check_regex() {
     local exp_ret=$1
     local message="$2"
@@ -2523,6 +2553,7 @@ function tests_func_cleanup() {
     local i
     local name
     local tmp_v
+    local fsname
 
     stop_on_fail=0
     
