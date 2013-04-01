@@ -710,6 +710,10 @@ int main(int argc, char **argv) {
   }
 
   fflush(stdout);
+
+  if (opt_verb > 0 && percent_step > 0) {
+    fprintf(stderr, "\n");
+  }
   
   if (opt_statefile != 0)
     err = save_statefile();
