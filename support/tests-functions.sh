@@ -149,7 +149,12 @@ function destroy_disk() {
 function list_disks() {
     local i
     local name
-    
+
+    if [ "$1" == "-h" ] ; then
+        echo "(none)"
+        return 0
+    fi
+
     for ((i=0; i < disksmax; i++)) ; do
         if [ "${disks[i]}" == "" ] ; then
             continue
@@ -321,6 +326,11 @@ function new_fifo() {
     local filepath=${TMPDIR}/mzt.${filename}
     local res=0
 
+    if [ "$1" == "-h" ] ; then
+        echo "(none)"
+        return 0
+    fi
+
     while [ -e "${filepath}" ] ; do
         filename=$(make_name 8)
         filepath=${TMPDIR}/mzt.${filename}
@@ -344,6 +354,12 @@ function new_fifo() {
 # max : upper bound for number (inclusive)
 function get_rand_number() {
     local upperlimit="-b"
+
+    if [ "$1" == "-h" ] ; then
+        echo "min max"
+        return 0
+    fi
+
     if [ ${2} -gt 255 ] ; then
         upperlimit="-w"
     fi
@@ -366,6 +382,11 @@ function make_name() {
     local min=${1}
     local max=0
     local upperlimit="-b"
+
+    if [ "$1" == "-h" ] ; then
+        echo "min_length [ max_length ]"
+        return 0
+    fi
 
     if [ $# -eq 2 ] ; then
         max=$2
@@ -523,6 +544,11 @@ function list_pools() {
     local i
     local name
 
+    if [ "$1" == "-h" ] ; then
+        echo "(none)"
+        return 0
+    fi
+
     for ((i=0; i < poolsmax; i++)) ; do
         if [ "${pools[i]}" == "" ] ; then
             continue
@@ -608,7 +634,7 @@ function make_clone_fs() {
     local fsfullname=""
 
     if [ "$1" == "-h" ] ; then
-        echo "fsname [ -o option=value [ -o ... ] ]"
+        echo "snapshot fsname [ -o option=value [ -o ... ] ]"
         return 0
     fi
 
@@ -658,6 +684,11 @@ function forget_fs() {
     local fsidx
     local tmp_v
 
+    if [ "$1" == "-h" ] ; then
+        echo "fsname"
+        return 0
+    fi
+
     tmp_v=fs_${name_tr}_idx
     fsidx=${!tmp_v}
 
@@ -688,6 +719,11 @@ function list_fss() {
     local poolname=""
     local tmp_v
     
+    if [ "$1" == "-h" ] ; then
+        echo "[ poolname ]"
+        return 0
+    fi
+
     if [ $# -eq 1 ] ; then
         poolname="${1}"
     fi
@@ -716,6 +752,11 @@ function list_fss() {
 function zfs_send() {
     local destpath=$1
     local args=""
+
+    if [ "$1" == "-h" ] ; then
+        echo "destfile zfs-send-args ... "
+        return 0
+    fi
 
     shift
 
@@ -863,6 +904,11 @@ function list_files() {
     local fsname=""
     local showghost=0
     local tmp_v
+
+    if [ "$1" == "-h" ] ; then
+        echo "[ fsname ] [ -g ]"
+        return 0
+    fi
 
     while [ $# -gt 0 ] ; do
         if [ "${1}" == "-g" ] ; then
@@ -1043,7 +1089,7 @@ function remove_file() {
     local tmp_v
 
     if [ "$1" == "-h" ] ; then
-        echo "filename"
+        echo "[ -k ] filename"
         return 0
     fi
 
@@ -1113,6 +1159,11 @@ function clone_files() {
     local oldfn_tr
     local tmp_v
 
+    if [ "$1" == "-h" ] ; then
+        echo "{ -c | -s } old_name new_name"
+        return 0
+    fi
+
     if [ "$1" == "-c" ] ; then
         tmp_v=fs_${newname//[\/@]/_}_path
         clonepath=${!tmp_v}
@@ -1169,6 +1220,11 @@ function forget_fs_files() {
     local tmp_v
     local oldidxmax=${filesmax}
 
+    if [ "$1" == "-h" ] ; then
+        echo "fs_name"
+        return 0
+    fi
+
     for ((idx=0; idx < oldidxmax; idx++)) ; do
         oldfn_tr=${files[${idx}]}
         tmp_v=file_${oldfn_tr}_fs
@@ -1196,7 +1252,7 @@ function resurrect_file() {
     local keepmeta=0
 
     if [ "$1" == "-h" ] ; then
-        echo "filename"
+        echo "filename [ new_fs ]"
         return 0
     fi
 
@@ -1276,7 +1332,12 @@ function forget_file_impl() {
     local filename_tr="$2"
     local fileidx=$1
     local i
-    
+
+    if [ "$1" == "-h" ] ; then
+        echo "idx  fname_tr"
+        return 0
+    fi
+
     for i in size fs name path compfact idx ghost; do
         eval unset file_${filename_tr}_${i}
     done
@@ -1300,6 +1361,11 @@ function calc_comp_fact() {
     local filepath
     local compsize=0
     local nomsize=0
+
+    if [ "$1" == "-h" ] ; then
+        echo "file"
+        return 0
+    fi
 
     tmp_v=file_${fileid}_path
     filepath=${!tmp_v}
@@ -1390,6 +1456,11 @@ function get_file_stats() {
 #    get_file_stats()
 function print_file_stats() {
     local tmp_v=""
+
+    if [ "$1" == "-h" ] ; then
+        echo "stats_array_name"
+        return 0
+    fi
 
     for i in name path mode nlink uid gid size atime mtime ctime blksize blocks ; do
         tmp_v=${1}_${i}
@@ -1527,6 +1598,11 @@ function get_fs_stats() {
 #    get_fs_stats()
 function print_fs_stats() {
     local tmp_v=""
+
+    if [ "$1" == "-h" ] ; then
+        echo "stats_array_name"
+        return 0
+    fi
 
     for i in pool name fullname path size alloc free used avail ref comp dfblocks dfused dffree; do
         tmp_v=${1}_${i}
