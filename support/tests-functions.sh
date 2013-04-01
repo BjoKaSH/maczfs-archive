@@ -2507,10 +2507,15 @@ function tests_func_cleanup() {
 
 
 function interact() {
+    local prompttxt="(check)"
     local cmd
     local args
 
-    read -p "(check) " cmd args
+    if [ "$1" != "" ] ; then
+        prompttxt="$1"
+    fi
+
+    read -e -p "${prompttxt} " cmd args
     while [ "${cmd}" != "q" ] ; do
         if [ "${cmd}" == "help" ] ; then
             cat <<EOF
@@ -2558,7 +2563,7 @@ EOF
             continue
         fi
         eval ${cmd} ${args}
-        read -p "(check) " cmd args
+        read -e -p "${prompttxt} " cmd args
     done
 }
 
