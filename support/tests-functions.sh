@@ -654,7 +654,7 @@ function make_clone_fs() {
 function forget_fs() {
     local i
     local name="${1}"
-    local name_tr="${1//\//_}"
+    local name_tr="${1//[\/@]/_}"
     local fsidx
     local tmp_v
 
@@ -1095,7 +1095,7 @@ function remove_file() {
 # snapshot into a new fs.
 # args:
 # { -c | -s } old-name new-name
-# -c  : a napshot is cloned
+# -c  : a snapshot is cloned
 # -s  : a file system is snapshotted
 # old-name : old filesystem or snapshot name
 # new-name : new snapshot or filesystem name
@@ -1114,7 +1114,7 @@ function clone_files() {
     local tmp_v
 
     if [ "$1" == "-c" ] ; then
-        tmp_v=fs_${newname//\//_}_path
+        tmp_v=fs_${newname//[\/@]/_}_path
         clonepath=${!tmp_v}
     fi
 
@@ -1136,7 +1136,7 @@ function clone_files() {
                 oldfn=${!tmp_v}
                 newfn=${newname}/${oldfn%@*}
             fi
-            newfn_tr=${newfn//\//_}
+            newfn_tr=${newfn//[\/@]/_}
             for attr in size relpath path compfact; do
                 tmp_v=file_${oldfn_tr}_${attr}
                 eval file_${newfn_tr}_${attr}=${!tmp_v}
@@ -1148,7 +1148,7 @@ function clone_files() {
             else
                 eval file_${newfn_tr}_ghost=0
                 tmp_v=file_${oldfn_tr}_relpath
-                eval file_${newfn_tr}_path=${clonepath}/${tmp_v}
+                eval file_${newfn_tr}_path=${clonepath}/${!tmp_v}
             fi
             eval file_${newfn_tr}_idx=${filesmax}
             files[${filesmax}]=${newfn_tr}
@@ -1201,7 +1201,7 @@ function resurrect_file() {
     fi
 
     filename=${1}
-    filename_tr=${filename//\//_}
+    filename_tr=${filename//[\/@]/_}
 
     for ((fileidx=0; fileidx < filesmax; fileidx++)) ; do
         if [ "${files[${fileidx}]}" == "${filename_tr}" ] ; then
@@ -1251,7 +1251,7 @@ function forget_file() {
     fi
 
     filename=${1}
-    filename_tr=${filename//\//_}
+    filename_tr=${filename//[\/@]/_}
 
     for ((fileidx=0; fileidx < filesmax; fileidx++)) ; do
         if [ "${files[${fileidx}]}" == "${filename_tr}" ] ; then
@@ -2341,8 +2341,8 @@ function get_val() {
         return 0
     fi
 
-    if [ "$1" == fs ] ; then
-        name="$1_${2//\//_}_$3"
+    if [ "$1" == fs -o "$1" == file ] ; then
+        name="$1_${2//[\/@]/_}_$3"
     else
         name="$1_$2_$3"
     fi
