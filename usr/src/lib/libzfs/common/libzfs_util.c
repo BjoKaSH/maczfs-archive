@@ -1078,6 +1078,17 @@ app_ioctl(int libzfsfd, unsigned long zfs_ioc_call, zfs_cmd_t *zc)
 
         return(err);
 }
+
+int
+osx_ioctl(int fd, unsigned long ioctl_req, void *ioctl_data)
+{
+        int err = 0;
+
+        err = ioctl(fd, ioctl_req, ioctl_data);
+
+        return(err);
+}
+
 #endif
 
 int

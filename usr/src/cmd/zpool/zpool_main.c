@@ -1876,29 +1876,44 @@ print_iostat(zpool_handle_t *zhp, void *data)
 	return (0);
 }
 
+static int
+get_columns(void)
+{
+	struct winsize ws;
+	int columns = 80;
+	int error;
+
+	if (isatty(fileno(stdout))) {
+		error = osx_ioctl(fileno(stdout), TIOCGWINSZ, &ws);
+		if (error == 0)
+			columns = ws.ws_col;
+		} else {
+		columns = 999;
+	}
+
+	return columns;
+}
+
 int
 get_namewidth(zpool_handle_t *zhp, void *data)
 {
 	iostat_cbdata_t *cb = data;
 	nvlist_t *config, *nvroot;
+	int newwidth=0;
 
 	if ((config = zpool_get_config(zhp, NULL)) != NULL) {
 		verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
 		    &nvroot) == 0);
-		if (!cb->cb_verbose)
-			cb->cb_namewidth = strlen(zpool_get_name(zhp));
-		else
-			cb->cb_namewidth = max_width(zhp, nvroot, 0, 0);
-	}
 
-	/*
-	 * The width must fall into the range [10,38].  The upper limit is the
-	 * maximum we can have and still fit in 80 columns.
-	 */
-	if (cb->cb_namewidth < 10)
-		cb->cb_namewidth = 10;
-	if (cb->cb_namewidth > 38)
-		cb->cb_namewidth = 38;
+		newwidth = strlen(zpool_get_name(zhp));
+		if (cb->cb_verbose) {
+			int vdevs_width = max_width(zhp, nvroot, 0, 0);
+			if (vdevs_width > newwidth)
+				newwidth = vdevs_width;
+		}
+	}
+    if (cb->cb_namewidth < newwidth)
+		cb->cb_namewidth = newwidth;
 
 	return (0);
 }
@@ -1924,6 +1939,7 @@ zpool_do_iostat(int argc, char **argv)
 	zpool_list_t *list;
 	boolean_t verbose = B_FALSE;
 	iostat_cbdata_t cb;
+	int columns;
 
 	/* check options */
 	while ((c = getopt(argc, argv, "v")) != -1) {
@@ -2043,6 +2059,17 @@ zpool_do_iostat(int argc, char **argv)
 		 */
 		cb.cb_namewidth = 0;
 		(void) pool_list_iter(list, B_FALSE, get_namewidth, &cb);
+
+		/*
+		 * The width must be at least 10, but may be as large as the
+		 * column width - 42 so that we can still fit in one line.
+		 */
+		columns = get_columns();
+
+		if (cb.cb_namewidth < 10)
+			cb.cb_namewidth = 10;
+		if (cb.cb_namewidth > columns - 42)
+			cb.cb_namewidth = columns - 42;
 
 		/*
 		 * If it's the first time, or verbose mode, print the header.
