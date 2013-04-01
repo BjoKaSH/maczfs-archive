@@ -2560,9 +2560,9 @@ print_object()
 tests_func_cleanup()
 
 EOF
-            continue
+        elif [ -n "$cmd" ] ; then
+            eval ${cmd} ${args}
         fi
-        eval ${cmd} ${args}
         read -e -p "${prompttxt} " cmd args
     done
 }
