@@ -423,6 +423,7 @@ function make_name() {
 # poolsmax : highest used index in pools[]
 function make_pool() {
     local opt=""
+    local opt_arg=""
     local poolpath=""
     local poolname="${1}"
     local poolfullname="${poolbase}_${poolname}"
@@ -441,6 +442,7 @@ function make_pool() {
     while [ "$1" == "-o" ] ; do
         shift
         opt="${opt} $1"
+        opt_arg="${opt_arg} -o $1"
         shift
     done
     eval pool_${poolname}_opt="\"\${opt}\""
@@ -456,7 +458,7 @@ function make_pool() {
         else
             disk_v=disk_${tmp//\//_}_disk
             tmp=${!disk_v}
-            if [ ! -z "${i##*:}" ] ; then
+            if [ "${i}" != "${i##*:}" ] ; then
                 tmp="${tmp}s${i##*:}"
             fi
             realvdevs="${realvdevs} $tmp"
@@ -464,7 +466,7 @@ function make_pool() {
     done
     eval pool_${poolname}_realvdevs="\"\${realvdevs}\""
 
-    zpool create ${opt} ${poolfullname} ${realvdevs}
+    zpool create ${opt_arg} ${poolfullname} ${realvdevs}
     res=$?
     if [ ${res} -eq 0 ] ; then
         pools[${poolsmax}]=$poolname
