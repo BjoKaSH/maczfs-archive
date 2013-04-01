@@ -2539,9 +2539,16 @@ function tests_func_init() {
         diskstore=$(mktemp -d -t diskstore_)
     fi
 
+    if [ -z "${poolbase}" ] ; then
+        poolbase=pool_$(date +%s)_$$
+    fi
+
     cleanup=0
     failcnt=0
     okcnt=0
+    subfailcnt=0
+    subokcnt=0
+    cursubtest=0
     tottests=0
     curtest=0
 
