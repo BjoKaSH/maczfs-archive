@@ -189,7 +189,7 @@ static const char *
 get_usage(zpool_help_t idx) {
 	switch (idx) {
 	case HELP_ADD:
-		return (gettext("\tadd [-fn] <pool> <vdev> ...\n"));
+		return (gettext("\tadd [-fn] [-o property=value] ...  <pool> <vdev> ...\n"));
 	case HELP_ATTACH:
 		return (gettext("\tattach [-f] <pool> <device> "
 		    "<new-device>\n"));
@@ -513,15 +513,28 @@ zpool_do_add(int argc, char **argv)
 	int ret;
 	zpool_handle_t *zhp;
 	nvlist_t *config;
+	nvlist_t *props = NULL;
+	char *propval = NULL;
 
 	/* check options */
-	while ((c = getopt(argc, argv, "fn")) != -1) {
+	while ((c = getopt(argc, argv, "fno:")) != -1) {
 		switch (c) {
 		case 'f':
 			force = B_TRUE;
 			break;
 		case 'n':
 			dryrun = B_TRUE;
+			break;
+		case 'o':
+			if ((propval = strchr(optarg, '=')) == NULL) {
+				(void) fprintf(stderr, gettext("missing "
+				    "'=' for -o option\n"));
+				usage(B_FALSE);
+			}
+			*propval = '\0';
+			propval++;
+			if (add_prop_list(optarg, propval, &props, B_TRUE))
+				usage(B_FALSE);
 			break;
 		case '?':
 			(void) fprintf(stderr, gettext("invalid option '%c'\n"),
@@ -558,8 +571,21 @@ zpool_do_add(int argc, char **argv)
 		return (1);
 	}
 
+	/* Check if we have the ashift property specified or set in the pool. */
+	if ( (props == 0) || (nvlist_lookup_string(props, "ashift", &propval) != 0) ) {
+		/* ashift not specified */
+		/* Try to determine the pool's default ashift value. */
+		zfs_source_t srctype;
+		char tmp_prop_val_buf[16];
+		zpool_get_prop(zhp, ZPOOL_PROP_ASHIFT, tmp_prop_val_buf, 16, &srctype);
+		if ( (srctype != ZFS_SRC_DEFAULT) && (srctype != ZFS_SRC_NONE)) {
+			/* Set to non-default value. Use it. */
+			add_prop_list("ashift", tmp_prop_val_buf, &props, B_TRUE);
+		}
+	}
+
 	/* pass off to get_vdev_spec for processing */
-	nvroot = make_root_vdev(zhp, NULL, force, !force, B_FALSE, argc, argv);
+	nvroot = make_root_vdev(zhp, props, force, !force, B_FALSE, argc, argv);
 	if (nvroot == NULL) {
 		zpool_close(zhp);
 		return (1);
@@ -1850,29 +1876,44 @@ print_iostat(zpool_handle_t *zhp, void *data)
 	return (0);
 }
 
+static int
+get_columns(void)
+{
+	struct winsize ws;
+	int columns = 80;
+	int error;
+
+	if (isatty(fileno(stdout))) {
+		error = osx_ioctl(fileno(stdout), TIOCGWINSZ, &ws);
+		if (error == 0)
+			columns = ws.ws_col;
+		} else {
+		columns = 999;
+	}
+
+	return columns;
+}
+
 int
 get_namewidth(zpool_handle_t *zhp, void *data)
 {
 	iostat_cbdata_t *cb = data;
 	nvlist_t *config, *nvroot;
+	int newwidth=0;
 
 	if ((config = zpool_get_config(zhp, NULL)) != NULL) {
 		verify(nvlist_lookup_nvlist(config, ZPOOL_CONFIG_VDEV_TREE,
 		    &nvroot) == 0);
-		if (!cb->cb_verbose)
-			cb->cb_namewidth = strlen(zpool_get_name(zhp));
-		else
-			cb->cb_namewidth = max_width(zhp, nvroot, 0, 0);
-	}
 
-	/*
-	 * The width must fall into the range [10,38].  The upper limit is the
-	 * maximum we can have and still fit in 80 columns.
-	 */
-	if (cb->cb_namewidth < 10)
-		cb->cb_namewidth = 10;
-	if (cb->cb_namewidth > 38)
-		cb->cb_namewidth = 38;
+		newwidth = strlen(zpool_get_name(zhp));
+		if (cb->cb_verbose) {
+			int vdevs_width = max_width(zhp, nvroot, 0, 0);
+			if (vdevs_width > newwidth)
+				newwidth = vdevs_width;
+		}
+	}
+    if (cb->cb_namewidth < newwidth)
+		cb->cb_namewidth = newwidth;
 
 	return (0);
 }
@@ -1898,6 +1939,7 @@ zpool_do_iostat(int argc, char **argv)
 	zpool_list_t *list;
 	boolean_t verbose = B_FALSE;
 	iostat_cbdata_t cb;
+	int columns;
 
 	/* check options */
 	while ((c = getopt(argc, argv, "v")) != -1) {
@@ -2017,6 +2059,17 @@ zpool_do_iostat(int argc, char **argv)
 		 */
 		cb.cb_namewidth = 0;
 		(void) pool_list_iter(list, B_FALSE, get_namewidth, &cb);
+
+		/*
+		 * The width must be at least 10, but may be as large as the
+		 * column width - 42 so that we can still fit in one line.
+		 */
+		columns = get_columns();
+
+		if (cb.cb_namewidth < 10)
+			cb.cb_namewidth = 10;
+		if (cb.cb_namewidth > columns - 42)
+			cb.cb_namewidth = columns - 42;
 
 		/*
 		 * If it's the first time, or verbose mode, print the header.

@@ -2129,8 +2129,8 @@ vdev_child_string_match(nvlist_t *vdev, char *tgt)
 	verify(nvlist_lookup_nvlist_array(vdev, ZPOOL_CONFIG_CHILDREN,
 	    &child, &children) == 0);
 	for (c = 0; c < children; ++c) {
-		if (nvlist_string_match(child[c], ZPOOL_CONFIG_PATH, tgt) ||
-		    nvlist_string_match(child[c], ZPOOL_CONFIG_DEVID, tgt))
+		if (nvlist_string_match(child[c], ZPOOL_CONFIG_PATH, tgt) /* ||
+		    nvlist_string_match(child[c], ZPOOL_CONFIG_DEVID, tgt) */ )
 			return (B_TRUE);
 	}
 	return (B_FALSE);
@@ -2196,7 +2196,7 @@ find_exported_zpool(char *pool_id, nvlist_t **configp, char *vdev_dir)
 				if (match != NULL) {
 					(void) fatal(
 					    "More than one matching pool - "
-					    "specify guid/devid/device path.");
+					    "specify guid/device path.");
 				} else {
 					match = *configp;
 					error = 0;

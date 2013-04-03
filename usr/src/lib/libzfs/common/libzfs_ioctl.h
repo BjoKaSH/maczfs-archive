@@ -38,4 +38,10 @@
  */
 int app_ioctl(int, unsigned long, zfs_cmd_t *);
 
+/*
+ * Sometime, we need to real system ioctl.  For example when manipulating
+ * terminal IO. 
+ */
+int osx_ioctl(int, unsigned long, void *);
+
 #define ioctl(fd, zioc, zcmdt)  app_ioctl(fd, zioc, zcmdt)
