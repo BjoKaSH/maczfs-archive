@@ -511,8 +511,9 @@ ifneq ($(strip $($(1)_$(2)_VERSION_FIN))x,x)
 .PHONY: $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c
 $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c:
 	mkdir -pv $$(dir $$@)
-	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$($(1)_$(2)_INSTNAME_FIN)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)" "\\n";' >$$@
-	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)0.;'  >>$$@
+	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$($(1)_$(2)_INSTNAME_FIN)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
+	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
+	echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
 
 $(1)_$(2)_VERS_O := $(BUILDBASE)/$(1)_$(2)/$(1)_vers.o
 
@@ -680,8 +681,9 @@ ifneq ($(strip $($(1)_$(2)_VERSION_FIN))x,x)
 .PHONY: $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c
 $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c:
 	mkdir -pv $$(dir $$@)
-	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$($(1)_$(2)_INSTNAME_FIN)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)" "\\n";' >$$@
-	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)0.;'  >>$$@
+	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$($(1)_$(2)_INSTNAME_FIN)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
+	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
+	echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
 
 $(1)_$(2)_VERS_O := $(BUILDBASE)/$(1)_$(2)/$(1)_vers.o
 
@@ -890,8 +892,9 @@ ifneq ($(strip $($(1)_$(2)_VERSION_FIN))x,x)
 .PHONY: $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c
 $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c:
 	mkdir -pv $$(dir $$@)
-	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$(1)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)" "\\n";' >$$@
-	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)0.;'  >>$$@
+	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$(1)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
+	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
+	echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
 
 $(1)_$(2)_VERS_O := $(BUILDBASE)/$(1)_$(2)/$(1)_vers.o
 
