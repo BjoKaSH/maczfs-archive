@@ -2335,6 +2335,61 @@ static zfs_ioc_vec_t zfs_ioc_vec[] = {
 	{ zfs_ioc_inherit_prop, zfs_secpolicy_inherit, DATASET_NAME, B_TRUE },
 };
 
+#ifdef __APPLE__
+kmutex_t zfs_ioctl_users_list_mtx;
+list_t zfs_ioctl_users_list;
+
+struct zfs_ioctl_user {
+	list_node_t ziu_node;
+	const struct proc *ziu_proc;
+};
+
+typedef struct zfs_ioctl_user zfs_ioctl_user_t;
+
+/* check if process p is in the list of version-checked ioctl() users. */
+zfs_ioctl_user_t *zfs_ioctl_users_find_impl(const struct proc *p) {
+	zfs_ioctl_user_t *ioctl_user = list_head(&zfs_ioctl_users_list);
+	while (ioctl_user != 0) {
+		if (ioctl_user->ziu_proc == p)
+			break;
+		ioctl_user = list_next(&zfs_ioctl_users_list, ioctl_user);
+	}
+	return(ioctl_user);
+}
+
+zfs_ioctl_user_t *zfs_ioctl_users_find(const struct proc *p) {
+	mutex_enter(&zfs_ioctl_users_list_mtx);
+	zfs_ioctl_user_t *ioctl_user = zfs_ioctl_users_find_impl(p);
+	mutex_exit(&zfs_ioctl_users_list_mtx);
+	return(ioctl_user);
+}
+
+/* add process p to list of version-checked processes. */
+void zfs_ioctl_users_add(const struct proc *p) {
+	zfs_ioctl_user_t *ioctl_user = kmem_zalloc(sizeof (zfs_ioctl_user_t), KM_SLEEP);
+	ioctl_user->ziu_proc = p;
+	mutex_enter(&zfs_ioctl_users_list_mtx);
+	if (zfs_ioctl_users_find_impl(p)) {
+		/* someone else was quicker. */
+		kmem_free(ioctl_user, sizeof(zfs_ioctl_user_t));
+	} else {
+		list_insert_tail(&zfs_ioctl_users_list, ioctl_user);
+	}
+	mutex_exit(&zfs_ioctl_users_list_mtx);
+}
+
+/* remove process p from list of version-checked processes. */
+void zfs_ioctl_users_remove(const struct proc *p) {
+	mutex_enter(&zfs_ioctl_users_list_mtx);
+	zfs_ioctl_user_t *ioctl_user = zfs_ioctl_users_find_impl(p);
+	if (ioctl_user) {
+		list_remove(&zfs_ioctl_users_list, ioctl_user);
+		kmem_free(ioctl_user, sizeof(zfs_ioctl_user_t));
+	}
+	mutex_exit(&zfs_ioctl_users_list_mtx);
+}
+#endif
+
 static int
 #ifdef __APPLE__
  zfsdev_ioctl(dev_t dev, u_long cmd, caddr_t data,  __unused int flag, struct proc *p)
@@ -2359,6 +2414,39 @@ static int
 	// 10a286 ctx = vfs_context_create(NULL) // again?
 	cr = (uintptr_t)NOCRED;    /* wants vfs_context_current() */
 	zc->zc_dev = dev;
+	/* check vec number for out-of-bound. */
+	if ( (vec != ZFS_IOC_NUM(ZFS_IOC__VERSION_CHECK)) &&
+		 (vec >= sizeof (zfs_ioc_vec) / sizeof (zfs_ioc_vec[0])) ) {
+		printf("zfs_ioctl.c: %s: ioctl vec %d out of bounds, proc: %p\n", __func__, vec, p);
+		return (EINVAL);
+	}
+
+	/* check if the calling process has successfully proved its zfs version.
+	 * if not, reject everything except the version check. */
+	zfs_ioctl_user_t *ioctl_user = zfs_ioctl_users_find(p);
+	if (!ioctl_user) {
+		/* version check not yet performed. */
+		if (vec != ZFS_IOC_NUM(ZFS_IOC__VERSION_CHECK)) {
+			return(EINVAL);
+		}
+		if (strncmp(zc->zc_name, __STRING(MACZFS_ID), sizeof(zc->zc_name)))
+			return (EINVAL);
+		if (zc->zc_value[0] != ZFS_IOC_NUM(ZFS_IOC__LAST_USED))
+			return (EINVAL);
+		if (zc->zc_value[1] != MACZFS_VERS_MAJOR)
+			return (EINVAL);
+		if (zc->zc_value[2] != MACZFS_VERS_MINOR)
+			return (EINVAL);
+		/* patch level not checked, it is not supposed to generated
+		 * incompatibilities */
+		zfs_ioctl_users_add(p);
+		return 0;
+	} else {
+		/* intercept repeated version check and return success. */
+		if (cmd == ZFS_IOC__VERSION_CHECK)
+			return 0;
+	}
+
 	error = zfs_ioc_vec[vec].zvec_secpolicy(zc, cr);
 	// 10a286 vfs_context_rele(ctx);
 #else
@@ -2423,6 +2511,17 @@ static int
 	return (error);
 }
 
+#ifdef __APPLE__
+int zfsdev_open(void) {
+	return(0);
+}
+
+int zfsdev_close(__unused dev_t dev, __unused int flag, __unused int mode, struct proc *p) {
+	zfs_ioctl_users_remove(p);
+	return(0);
+}
+#endif
+
 #ifndef __APPLE__
 static int
 zfs_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
@@ -2479,8 +2578,8 @@ zfs_info(dev_info_t *dip, ddi_info_cmd_t infocmd, void *arg, void **result)
 #ifdef __APPLE__
 static struct cdevsw zfs_cdevsw =
 {
-	zvol_open,		/* open */
-	zvol_close,		/* close */
+	zfsdev_open,		/* open */
+	zfsdev_close,		/* close */
 	zvol_read,		/* read */
 	zvol_write,		/* write */
 	zfsdev_ioctl,		/* ioctl */
@@ -2516,6 +2615,9 @@ zfs_ioctl_init(void)
 	}
 	zfs_ioctl_installed = 1;
 
+	list_create(&zfs_ioctl_users_list, sizeof(zfs_ioctl_user_t), 0);
+	mutex_init(&zfs_ioctl_users_list_mtx, NULL, MUTEX_DEFAULT, NULL);
+	
 	dev = zfs_major << 24;
 	zfs_devnode = devfs_make_node(dev, DEVFS_CHAR, UID_ROOT, GID_WHEEL, 0666, "zfs", 0);
 
@@ -2538,6 +2640,10 @@ zfs_ioctl_fini(void)
 		devfs_remove(zfs_devnode);
 		zfs_devnode = NULL;
 	}
+
+	mutex_destroy(&zfs_ioctl_users_list_mtx);
+	list_destroy(&zfs_ioctl_users_list);
+	
 	if (zfs_major) {
 		cdevsw_remove(zfs_major, &zfs_cdevsw);
 		zfs_major = 0;

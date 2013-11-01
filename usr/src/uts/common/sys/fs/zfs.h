@@ -488,6 +488,16 @@ typedef struct vdev_stat {
 #define	ZFS_IOC_ISCSI_PERM_CHECK    ZFS_IOC_CMD(43)
 #define	ZFS_IOC_SHARE		    ZFS_IOC_CMD(44)
 #define	ZFS_IOC_INHERIT_PROP	    ZFS_IOC_CMD(45)
+/* the following constant is always the last used ioc number except
+ * VERSION_CHECK.  It moves up when new ioc number are defined.  Note
+ * the two __ used to prevent collision with possible other ioc names we
+ * may inherit from other implementations. */
+#define ZFS_IOC__LAST_USED	    ZFS_IOC_CMD(45)
+/* special ioctl to protect against mixing userland and kernel land from
+ * different implementations.  Note the two __ used to prevent collision
+ * with possible other ioc names we may inherit from other
+ * implementations. */
+#define	ZFS_IOC__VERSION_CHECK	    ZFS_IOC_CMD(127)
 
 /*
  * Internal SPA load state.  Used by FMA diagnosis engine.

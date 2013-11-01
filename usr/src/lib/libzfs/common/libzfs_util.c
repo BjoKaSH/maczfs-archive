@@ -671,6 +671,24 @@ libzfs_init(void)
 	if ((hdl->libzfs_fd = open(ZFS_DEV, O_RDWR)) < 0) {
 		free(hdl);
 		return (NULL);
+	} else {
+		/* Perform special version ceck ioctl() to unlock user-kernel
+		 * interface.  This serves as protection against using userland
+		 * tools of one implementation against kernel land of another
+		 * implementation.
+		 */
+		zfs_cmd_t vers_zc = {0};
+		strncpy(vers_zc.zc_name, __STRING(MACZFS_ID), sizeof(vers_zc.zc_name)-1);
+		vers_zc.zc_value[0] = ZFS_IOC_NUM(ZFS_IOC__LAST_USED);
+		vers_zc.zc_value[1] = MACZFS_VERS_MAJOR;
+		vers_zc.zc_value[2] = MACZFS_VERS_MINOR;
+		vers_zc.zc_value[3] = MACZFS_VERS_PATCH;
+		hdl->libzfs_log_str = NULL;
+		if (zfs_ioctl(hdl, ZFS_IOC__VERSION_CHECK, &vers_zc) != 0) {
+			/* kernel - user version mismatch or kernel side not ready. */
+			free(hdl);
+			return (NULL);
+		}
 	}
 
 #ifndef __APPLE__
