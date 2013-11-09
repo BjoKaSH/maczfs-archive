@@ -289,8 +289,14 @@ build_group := $(shell id -gn)
 install_user := root
 install_group := wheel
 
+.PHONY: install_man
 
-release: install
+install_man:
+	mkdir -pv build/ZFS105/usr/share/man build/ZFS106/usr/share/man
+	cp -vr zfs_documentation/man8 build/ZFS105/usr/share/man/
+	cp -vr zfs_documentation/man8 build/ZFS106/usr/share/man/
+
+release: install install_man
 	mkdir -pv build/ZFS105 build/ZFS106
 	@echo Preparing MacOS 10.6.x package
 	set -x -v ; for i in $(ALL_EXE) ; do n386=$${i}_i386_INSTEXEDIR_FIN; in386=$${i}_i386_INSTNAME_FIN; n64=$${i}_x86_64_INSTEXEDIR_FIN; in64=$${i}_x86_64_INSTNAME_FIN; p386=$(INSTBASE)/i386/$${!n386}/$${!in386}; mkdir -pv build/ZFS106/$${!n386}; lipo $${p386} $(INSTBASE)/x86_64/$${!n64}/$${!in64} -create -output build/ZFS106/$${!n386}/$${!in386} ; dsymutil --verbose build/ZFS106/$${!n386}/$${!in386} ; done
