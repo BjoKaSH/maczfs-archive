@@ -1,6 +1,6 @@
 <pkgref spec="1.12" uuid="30F98214-CBC7-473D-821F-6EC861DDC2C2">
   <config>
-    <identifier>com.bandlem.mac.zfs.106.pkg</identifier>
+    <identifier>invalid.id.zfs.106.pkg</identifier>
     <version>0.0.0</version>
     <description />
     <post-install type="none" />
@@ -19,10 +19,10 @@
   </config>
   <contents>
     <file-list>02zfs-contents.xml</file-list>
-    <component id="com.bandlem.mac.zfs.util"
+    <component id="invalid.id.zfs.util"
     path="ZFS106/System/Library/Filesystems/zfs.fs"
     version="0.0.0" />
-    <component id="com.bandlem.mac.zfs.fs"
+    <component id="invalid.id.zfs.fs"
     path="ZFS106/System/Library/Extensions/zfs.kext"
     version="0.0.0" />
     <filter>/CVS$</filter>

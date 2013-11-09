@@ -4,7 +4,7 @@
 DIR=`dirname $0`
 BUILD=build
 
-DEFAULT_IDENTIFIER=com.bandlem.mac
+DEFAULT_IDENTIFIER=invalid.id
 
 VERSION=`${DIR}/version.sh`
 if [ -z "${VERSION}" ]
@@ -14,7 +14,7 @@ then
 fi
 
 CONFIG=Release
-IDENTIFIER=${DEFAULT_IDENTIFIER}
+IDENTIFIER=""
 INSTALL=No
 
 while [[ $1 == -* ]]; do
@@ -33,6 +33,11 @@ if [ -n "$*" ]
 then
   echo "Unknown arguments $*"
   exit 1;
+fi
+
+if [ -z "$IDENTIFIER" ] ; then
+    echo "argument '--id identifier' is mandatory."
+    exit 1
 fi
 
 USER=`whoami`

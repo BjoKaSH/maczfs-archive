@@ -323,7 +323,7 @@ release: install
 	@echo Creating combined installer package
 	cp -vr support/MacZFS.pmdoc build/ 
 	sed -i~  -e "s/0\\.0\\.0/$(install_version)/g"  build/MacZFS.pmdoc/*
-	sed -i~ -e "s/com.bandlem.mac/$(identifier)/g"  build/MacZFS.pmdoc/*  build/ZFS10?/System/Library/Filesystems/zfs.fs/Contents/Info.plist
+	sed -i~ -e "s/invalid.id/$(identifier)/g"  build/MacZFS.pmdoc/*  build/ZFS10?/System/Library/Filesystems/zfs.fs/Contents/Info.plist
 	find build/ZFS10? build/MacZFS.pmdoc -iname '*~'  -print0 | xargs -0 rm -v
 	@echo
 	@echo "explicitly setting group and ownership, enter sudo password if prompted"
