@@ -337,3 +337,35 @@ release: install install_man
 	tree -pug build/ZFS10? build/MacZFS.pmdoc
 	cd build && sudo packagemaker --doc MacZFS.pmdoc --version $(install_version) --title "Mac ZFS $(install_version)" --out MacZFS-$(install_version).pkg --target 10.5
 	sudo chown -R $(build_user):$(build_group) build/ZFS10? build/MacZFS.pmdoc build/MacZFS-$(install_version).pkg
+
+.PHONY: install-sys install-sys-impl
+
+install-sys: release  install-sys-impl
+	@echo Done.  Next reload kext.
+
+install-sys-impl:
+	set -x -v ; rel=$$(uname -r) ; if [ "$${rel%.*}" == "10.3" ] ; then \
+		relsrc=build/ZFS105 ; \
+	else \
+		relsrc=build/ZFS106 ; \
+	fi ; \
+	sudo chown -Rv $(install_user):$(install_group) $${relsrc} ; \
+	find $${relsrc} -print0 | sudo xargs -0 chmod o-w ; \
+	sudo ditto $${relsrc}/ / ; \
+	sudo touch /$${zfskext_i386_5_INSTKEXTDIR_FIN}
+	sudo chown -R $(build_user):$(build_group) build/ZFS10? ;
+
+install-sys-load:
+	sudo zpool status
+	if kextstat | grep -e "$(identifier).zfs.fs" ; then \
+		sudo kextutil -s /$${zfskext_i386_5_INSTKEXTDIR_FIN}/zfs.kext -A /$${zfskext_i386_5_INSTKEXTDIR_FIN}/zfs.kext ; \
+		rel=$$(uname -r) ; if [ "$${rel%.*}" == "10.3" ] ; then \
+			relsrc=build/ZFS105 ; \
+		else \
+			relsrc=build/ZFS106 ; \
+		fi ; \
+		cp -v /$${zfskext_i386_5_INSTKEXTDIR_FIN}/zfs.kext/$(identifier).zfs.fs.sym $${relsrc}/$${zfskext_i386_5_INSTKEXTDIR_FIN}/zfs.kext/ ; \
+	else \
+		echo "failed to load kext" ; \
+		false ; \
+	fi
