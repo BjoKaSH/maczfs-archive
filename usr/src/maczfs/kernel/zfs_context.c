@@ -158,6 +158,10 @@ zfs_context_init(void)
 
 	recalc_target_footprint(100);
 
+	printf("ZFS kernel module loaded\n");
+	printf("- - -\n");
+	printf("This is MacZFS %d.%d.%d\n", MACZFS_VERS_MAJOR, MACZFS_VERS_MINOR,MACZFS_VERS_PATCH);
+	printf("- - -\n");
 	printf("zfs_context_init: footprint.maximum=%lu, footprint.target=%lu\n",
 		zfs_footprint.maximum, zfs_footprint.target);
 }
