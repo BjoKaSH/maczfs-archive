@@ -1,9 +1,13 @@
 #!/bin/bash
 # Copyright 2010 Alex Blewitt
 #
+# several enhancements (C) 2013 Bjoern Kahl
+# - support for multiple kexts
+# - support for relase and debug kernels
+#
 # Parses a panic log 
 #
-# Note that this currently only works on 10.6 platforms
+# Note that this currently only works on 10.6 and possibly newer platforms
 #
 GDB=/usr/bin/gdb
 [ -x $GDB ] || GDB=/Developer/usr/bin/gdb
@@ -12,10 +16,13 @@ KitPath=/Volumes/KernelDebugKit
 DEBUG_KERNEL=
 GDB_KERNEL=/mach_kernel
 SymDir=/tmp
-Kext=/System/Library/Extensions/zfs.kext
+Kext=(/System/Library/Extensions/zfs.kext /System/Library/Extensions/spl.kext)
+KextCnt=2
 TEMPDOC=/tmp/kext.gdb
+TEMPAWK=/tmp/kext.awk
 AWK=/usr/bin/awk
 PANIC=$1
+shift
 # For 10.5 systems
 # PANICS='/Library/Logs/PanicReporter'
 PANICS='/Library/Logs/DiagnosticReports'
@@ -24,6 +31,12 @@ if [ ! -r "$PANIC" ]
 then
   PANIC=`grep -l zfs.fs "$PANICS"/*.panic | tail -n 1`
   echo No panic file given, assuming $PANIC
+else
+  while [ $# -gt 0 ] ; do
+    Kext[${KextCnt}]=$1
+    ((KextCnt++))
+    shift
+  done
 fi
 
 if [ ! -x $GDB ]
@@ -44,29 +57,64 @@ then
   exit 1
 fi
 
-ARCH=$($AWK '/root:xnu/ { gsub("^.*/RELEASE_",""); print tolower($0) }' "$PANIC")
+ARCH=$($AWK '/[a-z]+:xnu/ { gsub("^.*/(RELEASE|DEBUG)_",""); print tolower($0) }' "$PANIC")
 
 if [ -f $KitPath/mach_kernel ]
 then
   DEBUG_KERNEL="-no-system-extensions -kernel $KitPath/mach_kernel -repository $KitPath"
   GDB_KERNEL=$KitPath/mach_kernel
+elif [ -f ${GDB_KERNEL}.dSYM ] ; then
+  DEBUG_KERNEL="-no-system-extensions -kernel ${GDB_KERNEL}"
 fi
 
-ADDRESSES=$($AWK '/@0x/ { gsub("^ *|->.*$|\\(.*\\)","");print "-address",$0 }' "$PANIC")
+echo "set kext-symbol-file-path $SymDir" > $TEMPDOC
 
-$KU -quiet -no-caches $DEBUG_KERNEL -no-load -no-authentication -symbols $SymDir -arch $ARCH $Kext $ADDRESSES 
-
-if [ $? -ne 0 ]
-then
-  echo No symbols generated at $SymDir
-  exit 1
+okcnt=0
+bundlelist[0]=""
+for i in ${Kext[*]} ; do
+	if [ -d $i ] ; then
+		BUNDLE=$(sed -e '/CFBundleIdentifier/,/string/ p; d' <${i}/Contents/Info.plist | sed -e '/string/ { s%[[:space:]]*<string>%%; s%</string>%%; p;} ; d' | head -1)
+		ADDRESSES=$($AWK '/^[[:space:]]+'${BUNDLE}'.*@0x/ { gsub("^ *|->.*$|\\(.*\\)","");print "-address",$0 }' "$PANIC")
+		$KU -quiet -no-caches $DEBUG_KERNEL -no-load -no-authentication -symbols $SymDir -arch $ARCH $i $ADDRESSES 
+		if [ $? -ne 0 ] ; then	
+			echo No symbols generated at $SymDir
+		else
+			bundlelist[${okcnt}]=${BUNDLE}
+			okcnt=$(($okcnt + 1))
+			echo "add-kext $i" >> $TEMPDOC
+		fi
+	fi
+done
+	
+if [ ${okcnt} -eq 0 ] ; then
+	read -p  "No symbols generated!  Proceed anyway? (y/n)" ans
+	if [ "${ans}" != "y" ] ; then
+		exit 1
+	fi
 fi
 
-cat > $TEMPDOC <<EOF
-set kext-symbol-file-path $SymDir
-add-kext $Kext
-EOF
+
 $AWK '/^0x/ {print "x/i " $3}' < "$PANIC" >> $TEMPDOC
+
+echo "BEGIN {" >$TEMPAWK
+echo "cnt=0;" >>$TEMPAWK
+for i in ${bundlelist[*]} ; do
+	addr=($($AWK '/^[[:space:]]+'${i}'.*@0x/ { gsub("^[ a-z.]+@|\\(.*\\)","");gsub("->"," ");print $0; }' "$PANIC"))
+	echo "startaddr[cnt]=\"${addr[0]#*@}\";"
+	echo "endaddr[cnt++]=\"${addr[1]}\";"
+done >>$TEMPAWK
+echo "}" >>$TEMPAWK
+
+cat >>$TEMPAWK <<EOF
+/^0x/ {
+	for(i=0 ; i < cnt ; i++) {
+		if ( (startaddr[i] < \$3) && (\$3 < endaddr[i]) )
+			print "list *" \$3;
+	}
+}
+EOF
+
+$AWK -f $TEMPAWK < "$PANIC" >> $TEMPDOC
 echo quit >> $TEMPDOC
 
-$GDB -batch -arch $ARCH -x /tmp/kext.gdb $GDB_KERNEL 
+$GDB -batch -arch $ARCH -x ${TEMPDOC} $GDB_KERNEL 
