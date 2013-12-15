@@ -5,12 +5,12 @@
 # - support for multiple kexts
 # - support for relase and debug kernels
 #
-# Parses a panic log 
+# Parses a panic log
 #
 # Note that this currently only works on 10.6 and possibly newer platforms
 #
 GDB=/usr/bin/gdb
-[ -x $GDB ] || GDB=/Developer/usr/bin/gdb
+[ -x ${GDB} ] || GDB=/Developer/usr/bin/gdb
 KU=/usr/bin/kextutil
 KitPath=/Volumes/KernelDebugKit
 DEBUG_KERNEL=
@@ -46,7 +46,7 @@ while [ $# -gt 0 ] ; do
 		echo " -g kernel_file   : kernel to use for linking kexts.  Must be the same as the kernel"
 		echo "       that generated the panic.  Defaults to '/mach_kernel'."
 		echo " -d debug_kernel  : kernel file with debug symbols corresponding to the kernel"
-		echo "       that generated the panic.  Defaults to '$KitPath/mach_kernel' if present, else none."
+		echo "       that generated the panic.  Defaults to '${KitPath}/mach_kernel' if present, else none."
 		echo "       Overrides '-g kernel_file' if specified."
 		echo " panic_file       : The panic to decode."
 		echo " path_to_kext ... : Additional kexts to consider for symbol resolution."
@@ -91,11 +91,11 @@ while [ $# -gt 0 ] ; do
 		continue
 	fi
 	if [ -z "${PANIC}" ] ; then
-		PANIC="$1"
+		PANIC="${1}"
 		shift
 		continue
 	else
-		Kext[${KextCnt}]=$1
+		Kext[${KextCnt}]="${1}"
 		((KextCnt++))
 		shift
 	fi
@@ -120,34 +120,31 @@ elif [ "${PANIC}" == "-" ] ; then
 	cat >${PANIC}
 	echo "Done reading panic log."
 fi
-if [ -z "$PANIC" ]
+if [ -z "${PANIC}" ]
 then
-  PANIC=`grep -l zfs.fs "$PANICS"/*.panic | tail -n 1`
-  echo No panic file given, assuming $PANIC
+	PANIC=`grep -l zfs.fs "${PANICS}"/*.panic | tail -n 1`
+	echo "No panic file given, assuming '${PANIC}'"
 fi
 
-if [ ! -x $GDB ]
-then
-  echo Cannot find gdb at $GDB
-  rm -r ${myTmpDir}
-  exit 1
+if [ ! -x ${GDB} ] ; then
+	echo "Cannot find gdb at '${GDB}'"
+	rm -r ${myTmpDir}
+	exit 1
 fi
 
-if [ ! -x $KU ]
-then
-  echo Cannot find kextutil at $KU
-  rm -r ${myTmpDir}
-  exit 1
+if [ ! -x ${KU} ] ; then
+	echo "Cannot find kextutil at '${KU}'"
+	rm -r ${myTmpDir}
+	exit 1
 fi
 
-if [ ! -r "$PANIC" ]
-then
-  echo File $PANIC is not a readable panic log, which are usually found in $PANICS
-  rm -r ${myTmpDir}
-  exit 1
+if [ ! -r "${PANIC}" ] ; then
+	echo "File '${PANIC}' is not a readable panic log, which are usually found in '${PANICS}'."
+	rm -r ${myTmpDir}
+	exit 1
 fi
 
-ARCH=$($AWK '/[a-z]+:xnu/ { gsub("^.*/(RELEASE|DEBUG)_",""); print tolower($0) }' "$PANIC")
+ARCH=$(${AWK} '/[a-z]+:xnu/ { gsub("^.*/(RELEASE|DEBUG)_",""); print tolower($0) }' "${PANIC}")
 
 # This is a bit ugly, but we need to deal with file names with spaces,
 # Therefore the quoting here and the 'eval' when calling kextutil.
@@ -163,10 +160,10 @@ else
 fi
 
 # check if the kernel has a changed load address (Mavericks and up)
-KERNELBASE=$($AWK '/Kernel text base/ {print $4};' "$PANIC")
-KERNELSLIDE=$($AWK '/Kernel slide/ {print $3};' "$PANIC")
+KERNELBASE=$(${AWK} '/Kernel text base/ {print $4};' "${PANIC}")
+KERNELSLIDE=$(${AWK} '/Kernel slide/ {print $3};' "${PANIC}")
 
-echo "set kext-symbol-file-path $SymDir" > $TEMPDOC
+echo "set kext-symbol-file-path ${SymDir}" > ${TEMPDOC}
 if [ ! -z "sourcedir" ] ; then
 	echo "dir ${sourcedir}" >> ${TEMPDOC}
 fi
@@ -195,7 +192,7 @@ for i in "${Kext[@]}" ; do
 		if [ ${skipit} -eq 1 ] ; then
 			continue
 		fi
-		ADDRESSES=$($AWK '/^[[:space:]]+'${BUNDLE}'.*@0x/ { gsub("^ *|->.*$|\\(.*\\)|\[[0-9A-F-]+\]","");print "-address",$0 }' "$PANIC")
+		ADDRESSES=$(${AWK} '/^[[:space:]]+'${BUNDLE}'.*@0x/ { gsub("^ *|->.*$|\\(.*\\)|\[[0-9A-F-]+\]","");print "-address",$0 }' "${PANIC}")
 		if [ -z "${ADDRESSES}" ] ; then
 			echo "No addresses found for '${BUNDLE}'. Skipping."
 			continue
@@ -210,14 +207,14 @@ for i in "${Kext[@]}" ; do
 				deplist="${deplist} -d \"${i2}\""
 			fi
 		done
-		eval $KU -quiet -no-caches ${DEBUG_KERNEL} -no-load -no-authentication -symbols $SymDir -arch $ARCH  ${deplist} \"$i\" $ADDRESSES  </dev/null
-		if [ $? -ne 0 ] ; then	
-			echo No symbols generated at $SymDir
+		eval ${KU} -quiet -no-caches ${DEBUG_KERNEL} -no-load -no-authentication -symbols ${SymDir} -arch ${ARCH}  ${deplist} \"${i}\" ${ADDRESSES}  </dev/null
+		if [ $? -ne 0 ] ; then
+			echo "No symbols generated at '${SymDir}'."
 		else
 			bundlelist[${okcnt}]=${BUNDLE}
 			kextlist[${okcnt}]="${i}"
-			okcnt=$(($okcnt + 1))
-			echo "add-kext \"$i\"" >> $TEMPDOC
+			okcnt=$((${okcnt} + 1))
+			echo "add-kext \"${i}\"" >> ${TEMPDOC}
 		fi
 	fi
 done
@@ -235,22 +232,22 @@ fi
 
 
 if [ -z "${KERNELSLIDE}" ] ; then
-	$AWK '/^0x/ {print "x/i " $3;}' < "$PANIC" >> $TEMPDOC
+	${AWK} '/^0x/ {print "x/i " $3;}' < "${PANIC}" >> ${TEMPDOC}
 else
-	$AWK '/^0x/ {if ($3 "" > "'${KERNELBASE}'") { print "x/i " $3 " - '"${KERNELSLIDE}"'"; } else {print "x/i " $3;} }' < "$PANIC" >> $TEMPDOC
+	${AWK} '/^0x/ {if ($3 "" > "'${KERNELBASE}'") { print "x/i " $3 " - '"${KERNELSLIDE}"'"; } else {print "x/i " $3;} }' < "${PANIC}" >> ${TEMPDOC}
 fi
 
 if [ ${dosourcelist} -eq 1 ] ; then
-	echo "BEGIN {" >$TEMPAWK
-	echo "cnt=0;" >>$TEMPAWK
+	echo "BEGIN {" >${TEMPAWK}
+	echo "cnt=0;" >>${TEMPAWK}
 	for i in "${bundlelist[@]}" ; do
-		addr=($($AWK '/^[[:space:]]+'${i}'.*@0x/ { gsub("^[ a-z.]+@|\\(.*\\)|\[[0-9A-F-]+\]","");gsub("->"," ");print $0; }' "$PANIC"))
+		addr=($(${AWK} '/^[[:space:]]+'${i}'.*@0x/ { gsub("^[ a-z.]+@|\\(.*\\)|\[[0-9A-F-]+\]","");gsub("->"," ");print $0; }' "${PANIC}"))
 		echo "startaddr[cnt]=\"${addr[0]#*@}\";"
 		echo "endaddr[cnt++]=\"${addr[1]}\";"
-	done >>$TEMPAWK
-	echo "}" >>$TEMPAWK
+	done >>${TEMPAWK}
+	echo "}" >>${TEMPAWK}
 
-	cat >>$TEMPAWK <<EOF
+	cat >>${TEMPAWK} <<EOF
 /^0x/ {
 	for(i=0 ; i < cnt ; i++) {
 		if ( (startaddr[i] < \$3) && (\$3 < endaddr[i]) )
@@ -259,12 +256,12 @@ if [ ${dosourcelist} -eq 1 ] ; then
 }
 EOF
 
-	$AWK -f $TEMPAWK < "$PANIC" >> $TEMPDOC
+	${AWK} -f ${TEMPAWK} < "${PANIC}" >> ${TEMPDOC}
 fi
 
-echo quit >> $TEMPDOC
+echo quit >> ${TEMPDOC}
 
-$GDB -batch -arch $ARCH -x ${TEMPDOC} "${GDB_KERNEL}"
+${GDB} -batch -arch ${ARCH} -x ${TEMPDOC} "${GDB_KERNEL}"
 if [ $? -ne 0 -a ${keeptmp} -eq 0 ] ; then
 	read -p "GDB returned failure.  Keep gdb script and symbol files ? (Y/n) " ans
 	if [ "${ans}" != "n" ] ; then
@@ -277,3 +274,5 @@ if [ ${keeptmp} -eq 0 ] ; then
 else
 	echo "Keeping symbol files and gdb command file at '${myTmpDir}'."
 fi
+
+# End
