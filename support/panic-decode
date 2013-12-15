@@ -27,6 +27,7 @@ KextCnt=2
 TEMPDOC=${myTmpDir}/kext.gdb
 TEMPAWK=${myTmpDir}/kext.awk
 AWK=/usr/bin/awk
+keeptmp=0
 PANIC=$1
 shift
 
@@ -142,3 +143,15 @@ $AWK -f $TEMPAWK < "$PANIC" >> $TEMPDOC
 echo quit >> $TEMPDOC
 
 $GDB -batch -arch $ARCH -x ${TEMPDOC} $GDB_KERNEL 
+if [ $? -ne 0 -a ${keeptmp} -eq 0 ] ; then
+	read -p "GDB returned failure.  Keep gdb script and symbol files ? (Y/n) " ans
+	if [ "${ans}" != "n" ] ; then
+		keeptmp=1
+	fi
+fi
+
+if [ ${keeptmp} -eq 0 ] ; then
+	rm -r ${myTmpDir}
+else
+	echo "Keeping symbol files and gdb command file at '${myTmpDir}'."
+fi
