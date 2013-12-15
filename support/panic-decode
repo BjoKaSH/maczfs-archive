@@ -87,6 +87,10 @@ elif [ -f "${GDB_KERNEL}.dSYM" ] ; then
   DEBUG_KERNEL="-no-system-extensions -kernel \"${GDB_KERNEL}\""
 fi
 
+# check if the kernel has a changed load address (Mavericks and up)
+KERNELBASE=$($AWK '/Kernel text base/ {print $4};' "$PANIC")
+KERNELSLIDE=$($AWK '/Kernel slide/ {print $3};' "$PANIC")
+
 echo "set kext-symbol-file-path $SymDir" > $TEMPDOC
 
 # Determine which kext bundles are involved in the backtrace.
@@ -97,7 +101,7 @@ bundlelist[0]=""
 for i in "${Kext[@]}" ; do
 	if [ -d "${i}" ] ; then
 		BUNDLE=$(sed -e '/CFBundleIdentifier/,/string/ p; d' <"${i}/Contents/Info.plist" | sed -e '/string/ { s%[[:space:]]*<string>%%; s%</string>%%; p;} ; d' | head -1)
-		ADDRESSES=$($AWK '/^[[:space:]]+'${BUNDLE}'.*@0x/ { gsub("^ *|->.*$|\\(.*\\)","");print "-address",$0 }' "$PANIC")
+		ADDRESSES=$($AWK '/^[[:space:]]+'${BUNDLE}'.*@0x/ { gsub("^ *|->.*$|\\(.*\\)|\[[0-9A-F-]+\]","");print "-address",$0 }' "$PANIC")
 		# This is a bit ugly, but we need to deal with file names with spaces,
 		# Therefore the quoting and the 'eval'.
 		eval $KU -quiet -no-caches ${DEBUG_KERNEL} -no-load -no-authentication -symbols $SymDir -arch $ARCH \"$i\" $ADDRESSES
@@ -123,12 +127,16 @@ if [ ${okcnt} -eq 0 ] ; then
 fi
 
 
-$AWK '/^0x/ {print "x/i " $3}' < "$PANIC" >> $TEMPDOC
+if [ -z "${KERNELSLIDE}" ] ; then
+	$AWK '/^0x/ {print "x/i " $3;}' < "$PANIC" >> $TEMPDOC
+else
+	$AWK '/^0x/ {if ($3 "" > "'${KERNELBASE}'") { print "x/i " $3 " - '"${KERNELSLIDE}"'"; } else {print "x/i " $3;} }' < "$PANIC" >> $TEMPDOC
+fi
 
 echo "BEGIN {" >$TEMPAWK
 echo "cnt=0;" >>$TEMPAWK
 for i in "${bundlelist[@]}" ; do
-	addr=($($AWK '/^[[:space:]]+'${i}'.*@0x/ { gsub("^[ a-z.]+@|\\(.*\\)","");gsub("->"," ");print $0; }' "$PANIC"))
+	addr=($($AWK '/^[[:space:]]+'${i}'.*@0x/ { gsub("^[ a-z.]+@|\\(.*\\)|\[[0-9A-F-]+\]","");gsub("->"," ");print $0; }' "$PANIC"))
 	echo "startaddr[cnt]=\"${addr[0]#*@}\";"
 	echo "endaddr[cnt++]=\"${addr[1]}\";"
 done >>$TEMPAWK
