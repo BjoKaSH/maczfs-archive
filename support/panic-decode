@@ -12,6 +12,9 @@
 GDB=/usr/bin/gdb
 [ -x ${GDB} ] || GDB=/Developer/usr/bin/gdb
 KU=/usr/bin/kextutil
+AWK=/usr/bin/awk
+SED=/usr/bin/sed
+GREP=/usr/bin/grep
 KitPath=/Volumes/KernelDebugKit
 DEBUG_KERNEL=
 GDB_KERNEL=/mach_kernel
@@ -27,7 +30,6 @@ Kext=(/System/Library/Extensions/zfs.kext /System/Library/Extensions/spl.kext)
 KextCnt=2
 TEMPDOC=${myTmpDir}/kext.gdb
 TEMPAWK=${myTmpDir}/kext.awk
-AWK=/usr/bin/awk
 keeptmp=0
 dosourcelist=0
 sourcedir=""
@@ -122,7 +124,7 @@ elif [ "${PANIC}" == "-" ] ; then
 fi
 if [ -z "${PANIC}" ]
 then
-	PANIC=`grep -l zfs.fs "${PANICS}"/*.panic | tail -n 1`
+	PANIC=`${GREP} -l zfs.fs "${PANICS}"/*.panic | tail -n 1`
 	echo "No panic file given, assuming '${PANIC}'"
 fi
 
@@ -176,7 +178,7 @@ bundlelist[0]=""
 kextlist[0]=""
 for i in "${Kext[@]}" ; do
 	if [ -d "${i}" ] ; then
-		BUNDLE=$(sed -e '/CFBundleIdentifier/,/string/ p; d' <"${i}/Contents/Info.plist" | sed -e '/string/ { s%[[:space:]]*<string>%%; s%</string>%%; p;} ; d' | head -1)
+		BUNDLE=$(${SED} -e '/CFBundleIdentifier/,/string/ p; d' <"${i}/Contents/Info.plist" | ${SED} -e '/string/ { s%[[:space:]]*<string>%%; s%</string>%%; p;} ; d' | head -1)
 		if [ -z "${BUNDLE}" ] ; then
 			echo "No bundle ID found in '${i}'. Skipping."
 			continue
