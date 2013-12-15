@@ -29,6 +29,8 @@ TEMPDOC=${myTmpDir}/kext.gdb
 TEMPAWK=${myTmpDir}/kext.awk
 AWK=/usr/bin/awk
 keeptmp=0
+dosourcelist=0
+sourcedir=""
 
 while [ $# -gt 0 ] ; do
 	if [ "${1}" == "-h" -o  "${1}" == "--help" ] ; then
@@ -36,6 +38,10 @@ while [ $# -gt 0 ] ; do
 		echo "$0 [ -h | --help ] [ -k ] [ -r ] [ -s ] [ -a source_dir ] [ -g kernel_file ] [ panic_file [ path_to_kext ... ] ]"
 		echo " -h, --help : This help."
 		echo " -r  : Reset list of kext bundles, use only kexts on command line."
+		echo " -s  : Attempt to generate source listing for kext adresses.  Requires (1) the dSYM bundle"
+		echo "       for all kexts and (2) the actual source files present."
+		echo " -a source_dir    : Alternative source directory, implies '-s'."
+		echo "       Note: GDB does not allow spaces in the source path!"
 		echo " -g kernel_file   : kernel to use for linking kexts.  Must be the same as the kernel"
 		echo "       that generated the panic.  Defaults to '/mach_kernel'."
 		echo " -d debug_kernel  : kernel file with debug symbols corresponding to the kernel"
@@ -51,6 +57,18 @@ while [ $# -gt 0 ] ; do
 	if [ "${1}" == "-r" ] ; then
 		KextCnt=0
 		unset Kext
+		shift
+		continue
+	fi
+	if [ "${1}" == "-s" ] ; then
+		dosourcelist=1
+		shift
+		continue
+	fi
+	if [ "${1}" == "-a" ] ; then
+		sourcedir="${2}"
+		dosourcelist=1
+		shift
 		shift
 		continue
 	fi
@@ -143,6 +161,9 @@ KERNELBASE=$($AWK '/Kernel text base/ {print $4};' "$PANIC")
 KERNELSLIDE=$($AWK '/Kernel slide/ {print $3};' "$PANIC")
 
 echo "set kext-symbol-file-path $SymDir" > $TEMPDOC
+if [ ! -z "sourcedir" ] ; then
+	echo "dir ${sourcedir}" >> ${TEMPDOC}
+fi
 
 # Determine which kext bundles are involved in the backtrace.
 # This will be later used to find the source file and line for backtrace addresses
@@ -213,16 +234,17 @@ else
 	$AWK '/^0x/ {if ($3 "" > "'${KERNELBASE}'") { print "x/i " $3 " - '"${KERNELSLIDE}"'"; } else {print "x/i " $3;} }' < "$PANIC" >> $TEMPDOC
 fi
 
-echo "BEGIN {" >$TEMPAWK
-echo "cnt=0;" >>$TEMPAWK
-for i in "${bundlelist[@]}" ; do
-	addr=($($AWK '/^[[:space:]]+'${i}'.*@0x/ { gsub("^[ a-z.]+@|\\(.*\\)|\[[0-9A-F-]+\]","");gsub("->"," ");print $0; }' "$PANIC"))
-	echo "startaddr[cnt]=\"${addr[0]#*@}\";"
-	echo "endaddr[cnt++]=\"${addr[1]}\";"
-done >>$TEMPAWK
-echo "}" >>$TEMPAWK
+if [ ${dosourcelist} -eq 1 ] ; then
+	echo "BEGIN {" >$TEMPAWK
+	echo "cnt=0;" >>$TEMPAWK
+	for i in "${bundlelist[@]}" ; do
+		addr=($($AWK '/^[[:space:]]+'${i}'.*@0x/ { gsub("^[ a-z.]+@|\\(.*\\)|\[[0-9A-F-]+\]","");gsub("->"," ");print $0; }' "$PANIC"))
+		echo "startaddr[cnt]=\"${addr[0]#*@}\";"
+		echo "endaddr[cnt++]=\"${addr[1]}\";"
+	done >>$TEMPAWK
+	echo "}" >>$TEMPAWK
 
-cat >>$TEMPAWK <<EOF
+	cat >>$TEMPAWK <<EOF
 /^0x/ {
 	for(i=0 ; i < cnt ; i++) {
 		if ( (startaddr[i] < \$3) && (\$3 < endaddr[i]) )
@@ -231,7 +253,9 @@ cat >>$TEMPAWK <<EOF
 }
 EOF
 
-$AWK -f $TEMPAWK < "$PANIC" >> $TEMPDOC
+	$AWK -f $TEMPAWK < "$PANIC" >> $TEMPDOC
+fi
+
 echo quit >> $TEMPDOC
 
 $GDB -batch -arch $ARCH -x ${TEMPDOC} "${GDB_KERNEL}"
