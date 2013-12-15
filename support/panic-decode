@@ -15,6 +15,7 @@ KU=/usr/bin/kextutil
 KitPath=/Volumes/KernelDebugKit
 DEBUG_KERNEL=
 GDB_KERNEL=/mach_kernel
+DEBUG_KERNEL_IMG=""
 myTmpDir=$(mktemp -d -t maczfs-panic-decode)
 SymDir=${myTmpDir}/Syms
 if ! mkdir ${SymDir} ; then
@@ -35,6 +36,11 @@ while [ $# -gt 0 ] ; do
 		echo "$0 [ -h | --help ] [ -k ] [ -r ] [ -s ] [ -a source_dir ] [ -g kernel_file ] [ panic_file [ path_to_kext ... ] ]"
 		echo " -h, --help : This help."
 		echo " -r  : Reset list of kext bundles, use only kexts on command line."
+		echo " -g kernel_file   : kernel to use for linking kexts.  Must be the same as the kernel"
+		echo "       that generated the panic.  Defaults to '/mach_kernel'."
+		echo " -d debug_kernel  : kernel file with debug symbols corresponding to the kernel"
+		echo "       that generated the panic.  Defaults to '$KitPath/mach_kernel' if present, else none."
+		echo "       Overrides '-g kernel_file' if specified."
 		echo " panic_file       : The panic to decode."
 		echo " path_to_kext ... : Additional kexts to consider for symbol resolution."
 		echo "       You must also name a panic file to be able to name additional kexts."
@@ -45,6 +51,18 @@ while [ $# -gt 0 ] ; do
 	if [ "${1}" == "-r" ] ; then
 		KextCnt=0
 		unset Kext
+		shift
+		continue
+	fi
+	if [ "${1}" == "-g" ] ; then
+		GDB_KERNEL="${2}"
+		shift
+		shift
+		continue
+	fi
+	if [ "${1}" == "-d" ] ; then
+		DEBUG_KERNEL_IMG="${2}"
+		shift
 		shift
 		continue
 	fi
@@ -109,12 +127,15 @@ ARCH=$($AWK '/[a-z]+:xnu/ { gsub("^.*/(RELEASE|DEBUG)_",""); print tolower($0) }
 
 # This is a bit ugly, but we need to deal with file names with spaces,
 # Therefore the quoting here and the 'eval' when calling kextutil.
-if [ -f "${KitPath}/mach_kernel" ]
-then
-  DEBUG_KERNEL="-no-system-extensions -kernel \"${KitPath}/mach_kernel\" -repository \"${KitPath}\""
-  GDB_KERNEL="${KitPath}/mach_kernel"
-elif [ -f "${GDB_KERNEL}.dSYM" ] ; then
-  DEBUG_KERNEL="-no-system-extensions -kernel \"${GDB_KERNEL}\""
+if [ ! -z "${DEBUG_KERNEL_IMG}" ] ; then
+	# debug kernel specified
+	DEBUG_KERNEL="-no-system-extensions -kernel \"${DEBUG_KERNEL_IMG}\""
+	GDB_KERNEL="${DEBUG_KERNEL_IMG}"
+elif [ -f "${KitPath}/mach_kernel" ] ; then
+	DEBUG_KERNEL="-no-system-extensions -kernel \"${KitPath}/mach_kernel\" -repository \"${KitPath}\""
+	GDB_KERNEL="${KitPath}/mach_kernel"
+else
+	DEBUG_KERNEL="-kernel \"${GDB_KERNEL}\""
 fi
 
 # check if the kernel has a changed load address (Mavericks and up)
