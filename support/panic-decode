@@ -152,9 +152,17 @@ for i in "${Kext[@]}" ; do
 			echo "No addresses found for '${BUNDLE}'. Skipping."
 			continue
 		fi
+		# kextutil must be able to find all symbols referenced by the current kext.
+		# Construct list of possible dependencies to consider when searching symbols
+		deplist=""
 		# This is a bit ugly, but we need to deal with file names with spaces,
 		# Therefore the quoting and the 'eval'.
-		eval $KU -quiet -no-caches ${DEBUG_KERNEL} -no-load -no-authentication -symbols $SymDir -arch $ARCH \"$i\" $ADDRESSES
+		for i2 in "${Kext[@]}" ; do
+			if [ "${i}" != "${i2}" ] ; then
+				deplist="${deplist} -d \"${i2}\""
+			fi
+		done
+		eval $KU -quiet -no-caches ${DEBUG_KERNEL} -no-load -no-authentication -symbols $SymDir -arch $ARCH  ${deplist} \"$i\" $ADDRESSES  </dev/null
 		if [ $? -ne 0 ] ; then	
 			echo No symbols generated at $SymDir
 		else
