@@ -28,8 +28,36 @@ TEMPDOC=${myTmpDir}/kext.gdb
 TEMPAWK=${myTmpDir}/kext.awk
 AWK=/usr/bin/awk
 keeptmp=0
-PANIC="$1"
-shift
+
+while [ $# -gt 0 ] ; do
+	if [ "${1}" == "-h" -o  "${1}" == "--help" ] ; then
+		echo "Usage:"
+		echo "$0 [ -h | --help ] [ -k ] [ -r ] [ -s ] [ -a source_dir ] [ -g kernel_file ] [ panic_file [ path_to_kext ... ] ]"
+		echo " -h, --help : This help."
+		echo " -r  : Reset list of kext bundles, use only kexts on command line."
+		echo " panic_file       : The panic to decode."
+		echo " path_to_kext ... : Additional kexts to consider for symbol resolution."
+		echo "       You must also name a panic file to be able to name additional kexts."
+		echo "       Try '--' as panic file to use the default.  Use '-' to read panic from STDIN."
+		rm -r ${myTmpDir}
+		exit 0
+	fi
+	if [ "${1}" == "-r" ] ; then
+		KextCnt=0
+		unset Kext
+		shift
+		continue
+	fi
+	if [ -z "${PANIC}" ] ; then
+		PANIC="$1"
+		shift
+		continue
+	else
+		Kext[${KextCnt}]=$1
+		((KextCnt++))
+		shift
+	fi
+done
 
 # Determine OS X version
 osxrel_str=$(uname -r)
@@ -42,16 +70,18 @@ else
 	PANICS='/Library/Logs/DiagnosticReports'
 fi
 
-if [ ! -r "$PANIC" ]
+if [ "${PANIC}" == "--" ] ; then
+	PANIC=""
+elif [ "${PANIC}" == "-" ] ; then
+	PANIC=${myTmpDir}/stdin.panic
+	echo "Reading panic log from STDIN ..."
+	cat >${PANIC}
+	echo "Done reading panic log."
+fi
+if [ -z "$PANIC" ]
 then
   PANIC=`grep -l zfs.fs "$PANICS"/*.panic | tail -n 1`
   echo No panic file given, assuming $PANIC
-else
-  while [ $# -gt 0 ] ; do
-    Kext[${KextCnt}]=$1
-    ((KextCnt++))
-    shift
-  done
 fi
 
 if [ ! -x $GDB ]
@@ -98,10 +128,30 @@ echo "set kext-symbol-file-path $SymDir" > $TEMPDOC
 # in the respective kexts.
 okcnt=0
 bundlelist[0]=""
+kextlist[0]=""
 for i in "${Kext[@]}" ; do
 	if [ -d "${i}" ] ; then
 		BUNDLE=$(sed -e '/CFBundleIdentifier/,/string/ p; d' <"${i}/Contents/Info.plist" | sed -e '/string/ { s%[[:space:]]*<string>%%; s%</string>%%; p;} ; d' | head -1)
+		if [ -z "${BUNDLE}" ] ; then
+			echo "No bundle ID found in '${i}'. Skipping."
+			continue
+		fi
+		skipit=0
+		for ((i2=0;i2<okcnt;i2++)) ; do
+			if [ "${bundlelist[${i2}]}" == "${BUNDLE}" ] ; then
+				echo "Error: kext '${i}' defines same bundle ID as '${kextlist[${i2}]}'.  Skipping '${i}'."
+				skipit=1
+				break;
+			fi
+		done
+		if [ ${skipit} -eq 1 ] ; then
+			continue
+		fi
 		ADDRESSES=$($AWK '/^[[:space:]]+'${BUNDLE}'.*@0x/ { gsub("^ *|->.*$|\\(.*\\)|\[[0-9A-F-]+\]","");print "-address",$0 }' "$PANIC")
+		if [ -z "${ADDRESSES}" ] ; then
+			echo "No addresses found for '${BUNDLE}'. Skipping."
+			continue
+		fi
 		# This is a bit ugly, but we need to deal with file names with spaces,
 		# Therefore the quoting and the 'eval'.
 		eval $KU -quiet -no-caches ${DEBUG_KERNEL} -no-load -no-authentication -symbols $SymDir -arch $ARCH \"$i\" $ADDRESSES
@@ -109,6 +159,7 @@ for i in "${Kext[@]}" ; do
 			echo No symbols generated at $SymDir
 		else
 			bundlelist[${okcnt}]=${BUNDLE}
+			kextlist[${okcnt}]="${i}"
 			okcnt=$(($okcnt + 1))
 			echo "add-kext \"$i\"" >> $TEMPDOC
 		fi
