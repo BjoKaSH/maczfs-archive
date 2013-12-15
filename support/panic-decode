@@ -29,9 +29,17 @@ TEMPAWK=${myTmpDir}/kext.awk
 AWK=/usr/bin/awk
 PANIC=$1
 shift
-# For 10.5 systems
-# PANICS='/Library/Logs/PanicReporter'
-PANICS='/Library/Logs/DiagnosticReports'
+
+# Determine OS X version
+osxrel_str=$(uname -r)
+osxrel=$(expr ${osxrel_str} : '[0-9]*\.\([0-9][0-9]*\)')
+if [ ${osxrel} -eq 5 ] ; then
+	# For 10.5 systems
+	PANICS='/Library/Logs/PanicReporter'
+else
+	# All else
+	PANICS='/Library/Logs/DiagnosticReports'
+fi
 
 if [ ! -r "$PANIC" ]
 then
