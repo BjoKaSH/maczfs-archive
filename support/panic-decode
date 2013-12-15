@@ -37,6 +37,7 @@ while [ $# -gt 0 ] ; do
 		echo "Usage:"
 		echo "$0 [ -h | --help ] [ -k ] [ -r ] [ -s ] [ -a source_dir ] [ -g kernel_file ] [ panic_file [ path_to_kext ... ] ]"
 		echo " -h, --help : This help."
+		echo " -k  : Keep symbol file(s) and gdb command files."
 		echo " -r  : Reset list of kext bundles, use only kexts on command line."
 		echo " -s  : Attempt to generate source listing for kext adresses.  Requires (1) the dSYM bundle"
 		echo "       for all kexts and (2) the actual source files present."
@@ -53,6 +54,11 @@ while [ $# -gt 0 ] ; do
 		echo "       Try '--' as panic file to use the default.  Use '-' to read panic from STDIN."
 		rm -r ${myTmpDir}
 		exit 0
+	fi
+	if [ "${1}" == "-k" ] ; then
+		keeptmp=1
+		shift
+		continue
 	fi
 	if [ "${1}" == "-r" ] ; then
 		KextCnt=0
