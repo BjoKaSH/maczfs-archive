@@ -28,7 +28,7 @@ TEMPDOC=${myTmpDir}/kext.gdb
 TEMPAWK=${myTmpDir}/kext.awk
 AWK=/usr/bin/awk
 keeptmp=0
-PANIC=$1
+PANIC="$1"
 shift
 
 # Determine OS X version
@@ -77,12 +77,14 @@ fi
 
 ARCH=$($AWK '/[a-z]+:xnu/ { gsub("^.*/(RELEASE|DEBUG)_",""); print tolower($0) }' "$PANIC")
 
-if [ -f $KitPath/mach_kernel ]
+# This is a bit ugly, but we need to deal with file names with spaces,
+# Therefore the quoting here and the 'eval' when calling kextutil.
+if [ -f "${KitPath}/mach_kernel" ]
 then
-  DEBUG_KERNEL="-no-system-extensions -kernel $KitPath/mach_kernel -repository $KitPath"
-  GDB_KERNEL=$KitPath/mach_kernel
-elif [ -f ${GDB_KERNEL}.dSYM ] ; then
-  DEBUG_KERNEL="-no-system-extensions -kernel ${GDB_KERNEL}"
+  DEBUG_KERNEL="-no-system-extensions -kernel \"${KitPath}/mach_kernel\" -repository \"${KitPath}\""
+  GDB_KERNEL="${KitPath}/mach_kernel"
+elif [ -f "${GDB_KERNEL}.dSYM" ] ; then
+  DEBUG_KERNEL="-no-system-extensions -kernel \"${GDB_KERNEL}\""
 fi
 
 echo "set kext-symbol-file-path $SymDir" > $TEMPDOC
@@ -92,17 +94,19 @@ echo "set kext-symbol-file-path $SymDir" > $TEMPDOC
 # in the respective kexts.
 okcnt=0
 bundlelist[0]=""
-for i in ${Kext[*]} ; do
-	if [ -d $i ] ; then
-		BUNDLE=$(sed -e '/CFBundleIdentifier/,/string/ p; d' <${i}/Contents/Info.plist | sed -e '/string/ { s%[[:space:]]*<string>%%; s%</string>%%; p;} ; d' | head -1)
+for i in "${Kext[@]}" ; do
+	if [ -d "${i}" ] ; then
+		BUNDLE=$(sed -e '/CFBundleIdentifier/,/string/ p; d' <"${i}/Contents/Info.plist" | sed -e '/string/ { s%[[:space:]]*<string>%%; s%</string>%%; p;} ; d' | head -1)
 		ADDRESSES=$($AWK '/^[[:space:]]+'${BUNDLE}'.*@0x/ { gsub("^ *|->.*$|\\(.*\\)","");print "-address",$0 }' "$PANIC")
-		$KU -quiet -no-caches $DEBUG_KERNEL -no-load -no-authentication -symbols $SymDir -arch $ARCH $i $ADDRESSES 
+		# This is a bit ugly, but we need to deal with file names with spaces,
+		# Therefore the quoting and the 'eval'.
+		eval $KU -quiet -no-caches ${DEBUG_KERNEL} -no-load -no-authentication -symbols $SymDir -arch $ARCH \"$i\" $ADDRESSES
 		if [ $? -ne 0 ] ; then	
 			echo No symbols generated at $SymDir
 		else
 			bundlelist[${okcnt}]=${BUNDLE}
 			okcnt=$(($okcnt + 1))
-			echo "add-kext $i" >> $TEMPDOC
+			echo "add-kext \"$i\"" >> $TEMPDOC
 		fi
 	fi
 done
@@ -123,7 +127,7 @@ $AWK '/^0x/ {print "x/i " $3}' < "$PANIC" >> $TEMPDOC
 
 echo "BEGIN {" >$TEMPAWK
 echo "cnt=0;" >>$TEMPAWK
-for i in ${bundlelist[*]} ; do
+for i in "${bundlelist[@]}" ; do
 	addr=($($AWK '/^[[:space:]]+'${i}'.*@0x/ { gsub("^[ a-z.]+@|\\(.*\\)","");gsub("->"," ");print $0; }' "$PANIC"))
 	echo "startaddr[cnt]=\"${addr[0]#*@}\";"
 	echo "endaddr[cnt++]=\"${addr[1]}\";"
@@ -142,7 +146,7 @@ EOF
 $AWK -f $TEMPAWK < "$PANIC" >> $TEMPDOC
 echo quit >> $TEMPDOC
 
-$GDB -batch -arch $ARCH -x ${TEMPDOC} $GDB_KERNEL 
+$GDB -batch -arch $ARCH -x ${TEMPDOC} "${GDB_KERNEL}"
 if [ $? -ne 0 -a ${keeptmp} -eq 0 ] ; then
 	read -p "GDB returned failure.  Keep gdb script and symbol files ? (Y/n) " ans
 	if [ "${ans}" != "n" ] ; then
