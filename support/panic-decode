@@ -15,12 +15,17 @@ KU=/usr/bin/kextutil
 KitPath=/Volumes/KernelDebugKit
 DEBUG_KERNEL=
 GDB_KERNEL=/mach_kernel
-SymDir=/tmp
+myTmpDir=$(mktemp -d -t maczfs-panic-decode)
+SymDir=${myTmpDir}/Syms
+if ! mkdir ${SymDir} ; then
+	echo "Failed to create temporary directory '${SymDir}'.  Giving up."
+	exit 1
+fi
 # MacZFS stable uses zfs.kext, OSX-ZFS uses additionaly spl.kext
 Kext=(/System/Library/Extensions/zfs.kext /System/Library/Extensions/spl.kext)
 KextCnt=2
-TEMPDOC=/tmp/kext.gdb
-TEMPAWK=/tmp/kext.awk
+TEMPDOC=${myTmpDir}/kext.gdb
+TEMPAWK=${myTmpDir}/kext.awk
 AWK=/usr/bin/awk
 PANIC=$1
 shift
@@ -43,18 +48,21 @@ fi
 if [ ! -x $GDB ]
 then
   echo Cannot find gdb at $GDB
+  rm -r ${myTmpDir}
   exit 1
 fi
 
 if [ ! -x $KU ]
 then
   echo Cannot find kextutil at $KU
+  rm -r ${myTmpDir}
   exit 1
 fi
 
 if [ ! -r "$PANIC" ]
 then
   echo File $PANIC is not a readable panic log, which are usually found in $PANICS
+  rm -r ${myTmpDir}
   exit 1
 fi
 
@@ -96,6 +104,7 @@ done
 if [ ${okcnt} -eq 0 ] ; then
 	read -p  "No symbols generated!  Proceed anyway? (y/n)" ans
 	if [ "${ans}" != "y" ] ; then
+		rm -r ${myTmpDir}
 		exit 1
 	fi
 fi
