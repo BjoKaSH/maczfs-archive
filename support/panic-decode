@@ -16,6 +16,7 @@ KitPath=/Volumes/KernelDebugKit
 DEBUG_KERNEL=
 GDB_KERNEL=/mach_kernel
 SymDir=/tmp
+# MacZFS stable uses zfs.kext, OSX-ZFS uses additionaly spl.kext
 Kext=(/System/Library/Extensions/zfs.kext /System/Library/Extensions/spl.kext)
 KextCnt=2
 TEMPDOC=/tmp/kext.gdb
@@ -69,6 +70,9 @@ fi
 
 echo "set kext-symbol-file-path $SymDir" > $TEMPDOC
 
+# Determine which kext bundles are involved in the backtrace.
+# This will be later used to find the source file and line for backtrace addresses
+# in the respective kexts.
 okcnt=0
 bundlelist[0]=""
 for i in ${Kext[*]} ; do
@@ -85,7 +89,10 @@ for i in ${Kext[*]} ; do
 		fi
 	fi
 done
-	
+
+# without symbols from kextutil, we can't translate to source file and line.
+# But we could still try to identify the kernel functions in the backtrace.
+# Ask user what to do.
 if [ ${okcnt} -eq 0 ] ; then
 	read -p  "No symbols generated!  Proceed anyway? (y/n)" ans
 	if [ "${ans}" != "y" ] ; then
