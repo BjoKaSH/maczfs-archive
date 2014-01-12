@@ -3,14 +3,14 @@
 #
 # This script gathers information about the installed version auf MacZFS
 #
-    set -x -v
+#    set -x -v
 
 # config
 PKGTOOL=pkgutil
 OUTFILE=collect-mazfs-state-info.txt
 TMPFILE=$(mktemp collect-mazfs-state-info.XXXXXX)
 function run_cmd() {
-    set -x -v
+#    set -x -v
     local msg="$1";
     shift
 
