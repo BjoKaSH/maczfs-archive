@@ -14,6 +14,7 @@ function run_cmd() {
     local msg="$1";
     shift
 
+    echo "${msg}"
     echo "" >> ${OUTFILE}
     echo "${msg}"  >> ${OUTFILE}
     echo "# $*"  >> ${OUTFILE}
@@ -70,6 +71,7 @@ run_cmd "Looking for ZFS packages"  "${PKGTOOL} --pkgs | grep -e zfs -e ZFS -e Z
 
 # iterate over installed packages and collect all installed zfs binaries
 # all packages
+echo "Looking for installed ZFS modules and tools from packages ..."
 pkgs=($(${PKGTOOL} --pkgs | grep -e zfs -e ZFS -e zevo -e ZEVO))
 if [ ! -z "${pkgs[0]}" ] ; then
     # all files
@@ -126,18 +128,19 @@ if [ ! -z "${pkgs[0]}" ] ; then
         done <${TMPFILE}  >> ${OUTFILE}
         echo "--<<<<--"  >> ${OUTFILE}
         cat </dev/null  > ${TMPFILE}
+        echo "Found ${libcnt} ZFS related libraries, ${kextcnt} ZFS kernel modules and ${cmdcnt} ZFS tools." | tee -a ${OUTFILE}
     else
-        echo "No ZFS related files in package database"  >> ${OUTFILE}
+        echo "No ZFS related files in package database"  | tee -a ${OUTFILE}
     fi
 else
     echo ""  >> ${OUTFILE}
-    echo "No ZFS related packages in database"  >> ${OUTFILE}
+    echo "No ZFS related packages in database"  | tee -a ${OUTFILE}
 fi
 
 # try to get version info from files found so far
 if [ ${kextcnt} -gt 0 ] ; then
     echo ""  >> ${OUTFILE}
-    echo "Looking for version info in found kext"  >> ${OUTFILE}
+    echo "Looking for version info in ${kextcnt} found kext" | tee -a ${OUTFILE}
     for i in "${kextpathlist[@]}" ; do
         scan_plist ${i}/Contents/Info.plist  CFBundleIdentifier  CFBundleName  CFBundleShortVersionString  CFBundleVersion
         for i2 in ${i}/Contents/MacOS/* ; do
@@ -148,7 +151,7 @@ fi
 
 if [ ${cmdcnt} -gt 0 ] ; then
     echo ""  >> ${OUTFILE}
-    echo "Looking for version info in found zfs tools"  >> ${OUTFILE}
+    echo "Looking for version info in ${cmdcnt} found zfs tools" | tee -a ${OUTFILE}
     for i in "${cmdpathlist[@]}" ; do
         echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG  >> ${OUTFILE})"
     done
@@ -156,7 +159,7 @@ fi
 
 if [ ${libcnt} -gt 0 ] ; then
     echo ""  >> ${OUTFILE}
-    echo "Looking for version info in found libraries"  >> ${OUTFILE}
+    echo "Looking for version info in ${libcnt} found libraries"  | tee -a  ${OUTFILE}
     for i in "${libpathlist[@]}" ; do
         echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG  >> ${OUTFILE})"
     done
@@ -208,7 +211,7 @@ rm ${TMPFILE}
 
 echo "Done."
 echo
-echo "You may examine to log file at '${OUTFILE}' (current directory: $(pwd))"
+echo "You may examine the log file at '${OUTFILE}' (current directory: $(pwd))"
 echo "and then attach it to your problem report at 'http://code.google.com/p/maczfs/issues/'."
 echo
 
