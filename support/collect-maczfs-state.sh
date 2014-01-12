@@ -62,6 +62,8 @@ function scan_plist() {
     echo "------"  >> ${OUTFILE}
 }
 
+# system version
+run_cmd "Determinig system version"  "uname -a"
 
 # find installed version(s)
 run_cmd "Looking for ZFS packages"  "${PKGTOOL} --pkgs | grep -e zfs -e ZFS -e ZEVO -e zevo"
@@ -163,6 +165,44 @@ fi
 run_cmd "Looking for other zfs binaries"  "find /usr/bin /usr/sbin /bin /sbin /usr/local /opt/local '(' -iname zfs -o -iname zpool -o -iname zdb -o -iname ztest -o -iname 'libzfs*' -o -iname 'libzpool*' ')' -a -type f -a -ls"
 
 run_cmd "Looking for loaded kexts"  "kextstat | grep -e zfs -e ZFS -e ZEVO -e zevo -e spl -e com.greenbyte -e com.bandlem"
+
+echo "looking for panic reports"
+# Determine OS X version
+osxrel_str=$(uname -r)
+osxrel=$(expr ${osxrel_str} : '[0-9]*\.\([0-9][0-9]*\)')
+if [ ${osxrel} -eq 5 ] ; then
+	# For 10.5 systems
+	PANICS='/Library/Logs/PanicReporter'
+else
+	# All else
+	PANICS='/Library/Logs/DiagnosticReports'
+fi
+
+panicCnt=0
+panicCntTot=0
+for i in x $(ls -tr "${PANICS}" ) ; do
+    if [ "${i}" == "x" ] ; then
+        continue
+    fi
+    if [ ! -f "${PANICS}/${i}" ] ; then
+        continue
+    fi
+    ((panicCntTot++))
+    if grep -e 'zfs' "${PANICS}/${i}" >/dev/null ; then
+        echo "   ${i}"
+        echo "" >>${OUTFILE}
+        ls -l  "${PANICS}/${i}" >>${OUTFILE}
+        echo "-->>>>--"  >> ${OUTFILE}
+        cat "${PANICS}/${i}" >>${OUTFILE}
+        echo "--<<<<--"  >> ${OUTFILE}
+        ((panicCnt++))
+    fi
+done
+if [ ${panicCntTot} -eq 0 ] ; then
+    echo "No Panic logs found."
+else
+    echo "Found ${panicCnt} MacZFS related panic logs out of ${panicCntTot} recorded panics."
+fi
 
 rm ${TMPFILE}
 
