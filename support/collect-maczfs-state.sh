@@ -9,9 +9,15 @@
 PKGTOOL=pkgutil
 OUTFILE=collect-mazfs-state-info.txt
 TMPFILE=$(mktemp collect-mazfs-state-info.XXXXXX)
+TMPFILE2=$(mktemp collect-mazfs-state-info-2.XXXXXX)
 function run_cmd() {
 #    set -x -v
-    local msg="$1";
+    local msg="$1"
+    local keep=0
+    local var=""
+    local root=0
+    local suml=""
+    local resultarr
     shift
 
     echo "${msg}"
@@ -19,11 +25,33 @@ function run_cmd() {
     echo "${msg}"  >> ${OUTFILE}
     echo "# $*"  >> ${OUTFILE}
 
-    {
-        if [ "${1}" == "-r" ] ; then
-            sudo $*  >> ${OUTFILE}  
+    while [ "${1:0:1}" == "-" ] ; do
+        if [ "${1}" == "-k" ] ; then
+            keep=1
+            shift
+        elif [ "${1}" == "-r" ] ; then
+            root=1
+            shift
+        elif [ "${1}" == "-v" ] ; then
+            shift
+            var="${1}"
+            shift
+        elif [ "${1}" == "-sl" ] ; then
+            shift
+            suml="${1}"
+            shift
         else
-            eval $* >> ${OUTFILE}
+            echo "Internal error"  | tee -a ${OUTFILE}
+            rm ${TMPFILE}  ${TMPFILE2}
+            exit 1
+        fi
+    done
+
+    {
+        if [ ${root} -eq 1 ] ; then
+            sudo $*  | tee  ${TMPFILE2}  >> ${OUTFILE}
+        else
+            eval $*  | tee  ${TMPFILE2}  >> ${OUTFILE}
         fi
     } 2> ${TMPFILE}
     if [ -s ${TMPFILE} ] ; then
@@ -33,6 +61,18 @@ function run_cmd() {
         cat ${TMPFILE}  >> ${OUTFILE}
         # truncate file
         cat </dev/null >${TMPFILE}
+    fi
+    resultarr=($(wc -l ${TMPFILE2}))
+    # global variable:
+    resultlines=${resultarr[0]}
+    if [ ! -z "${suml}" ] ; then
+        printf "${suml}\n"  ${resultlines}  | tee -a ${OUTFILE}
+    fi
+    if [ ! -z "${var}" ] ; then
+        eval ${var}=\(\$\(cat ${TMPFILE2}\)\)
+    fi
+    if [ ${keep} -eq 0 ] ; then
+        cat </dev/null >${TMPFILE2}
     fi
 }
 
@@ -67,12 +107,12 @@ function scan_plist() {
 run_cmd "Determinig system version"  "uname -a"
 
 # find installed version(s)
-run_cmd "Looking for ZFS packages"  "${PKGTOOL} --pkgs | grep -e zfs -e ZFS -e ZEVO -e zevo"
+run_cmd "Looking for ZFS packages" -v pkgs -sl "Found %d packages" "${PKGTOOL} --pkgs | grep -e zfs -e ZFS -e ZEVO -e zevo"
 
 # iterate over installed packages and collect all installed zfs binaries
 # all packages
 echo "Looking for installed ZFS modules and tools from packages ..."
-pkgs=($(${PKGTOOL} --pkgs | grep -e zfs -e ZFS -e zevo -e ZEVO))
+#pkgs=($(${PKGTOOL} --pkgs | grep -e zfs -e ZFS -e zevo -e ZEVO))
 if [ ! -z "${pkgs[0]}" ] ; then
     # all files
     for p in "${pkgs[@]}" ; do
@@ -165,7 +205,7 @@ if [ ${libcnt} -gt 0 ] ; then
     done
 fi
 
-run_cmd "Looking for other zfs binaries"  "find /usr/bin /usr/sbin /bin /sbin /usr/local /opt/local '(' -iname zfs -o -iname zpool -o -iname zdb -o -iname ztest -o -iname 'libzfs*' -o -iname 'libzpool*' ')' -a -type f -a -ls"
+run_cmd "Looking for other zfs binaries" -k -sl "Found %d other ZFS files" "find /usr/bin /usr/sbin /bin /sbin /usr/local /opt/local '(' -iname zfs -o -iname zpool -o -iname zdb -o -iname ztest -o -iname 'libzfs*' -o -iname 'libzpool*' ')' -a -type f -a -ls"
 
 run_cmd "Looking for loaded kexts"  "kextstat | grep -e zfs -e ZFS -e ZEVO -e zevo -e spl -e com.greenbyte -e com.bandlem"
 
