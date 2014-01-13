@@ -103,6 +103,62 @@ function scan_plist() {
     echo "------"  >> ${OUTFILE}
 }
 
+function classify_file() {
+    local n="$1"
+    local n2=""
+    local n3=""
+    local print_flag=0
+
+    if [ "${n}" == "-p" ] ; then
+        print_flag=1
+        shift
+        n="$1"
+    fi
+
+    # ignore source code files
+    n3="${n##*.}"
+    if [ "${n3}" == "h" -o "${n3}" == "c" -o "${n3}" == "cc" -o "${n3}" == "cpp" ] ; then
+        return 0
+    fi
+
+    if [ -f "${n}" ] ; then
+        n2="${n##*/}"
+        [ ${print_flag} -eq 1 ] && ls -l "$n"
+        if expr "${n}" : ".*bin/" >/dev/null ; then
+            cmdlist[${cmdcnt}]="${n2}"
+            cmdpathlist[${cmdcnt}]="${n}"
+            ((cmdcnt++))
+        fi
+    fi
+    if  [ -f "${n}" -o -d "${n}" ] ; then
+        n2="${n##*/}"
+        n3="${n2##*.}"
+        case "${n3}" in
+        (kext)
+            [ ${print_flag} -eq 1 ] && ls -ld "$n"
+            kextlist[${kextcnt}]="${n2}"
+            kextpathlist[${kextcnt}]="${n}"
+            ((kextcnt++))
+            ;;
+        (fs)
+            [ ${print_flag} -eq 1 ] && ls -ld "$n"
+            fslist[${fscnt}]="${n2}"
+            fspathlist[${fscnt}]="${n}"
+            ((fscnt++))
+            ;;
+        (dylib)
+            # "ls -l" done in first "if" block
+            liblist[${libcnt}]="${n2}"
+            libpathlist[${libcnt}]="${n}"
+            ((libcnt++))
+            ;;
+        (dSYM)
+            # nothing
+            ;;
+        esac
+    fi
+}
+
 # system version
 run_cmd "Determining system version"  "uname -a"
 
@@ -135,39 +191,7 @@ if [ ! -z "${pkgs[0]}" ] ; then
         while read f ; do
             for prefix in "" / /System/Library/Extensions/  /System/Library/Filesystems/  /Library/Extensions/  /Library/Filesystems/ ; do
                 n="${prefix}${f}"
-                if [ -f "${n}" ] ; then
-                    n2="${n##*/}"
-                    ls -l "$n"
-                    if expr "${n}" : ".*bin/" >/dev/null ; then
-                        cmdlist[${cmdcnt}]="${n2}"
-                        cmdpathlist[${cmdcnt}]="${n}"
-                        ((cmdcnt++))
-                    fi
-                fi
-                if  [ -f "${n}" -o -d "${n}" ] ; then
-                    n2="${n##*/}"
-                    n3="${n2##.}"
-                    case "${n3}" in
-                    (kext)
-                        ls -ld "$n"
-                        kextlist[${kextcnt}]="${n2}"
-                        kextpathlist[${kextcnt}]="${n}"
-                        ((kextcnt++))
-                        ;;
-                    (fs)
-                        ls -ld "$n"
-                        fslist[${fscnt}]="${n2}"
-                        fspathlist[${fscnt}]="${n}"
-                        ((fscnt++))
-                        ;;
-                    (dylib)
-                        # "ls -l" done in first "if" block
-                        liblist[${libcnt}]="${n2}"
-                        libpathlist[${libcnt}]="${n}"
-                        ((libcnt++))
-                        ;;
-                    esac
-                fi
+                classify_file -p "${n}"
             done
         done <${TMPFILE}  >> ${OUTFILE}
         echo "--<<<<--"  >> ${OUTFILE}
@@ -180,6 +204,27 @@ else
     echo ""  >> ${OUTFILE}
     echo "No ZFS related packages in database"  | tee -a ${OUTFILE}
 fi
+
+echo "" >> ${OUTFILE}
+echo "Looking for other zfs binaries" | tee -a ${OUTFILE}
+find /usr/bin /usr/sbin /bin /sbin /usr/local /opt/local  '(' -iname '*.dSYM' -a -prune -o -iname 'zfs*' -o -iname 'zpool*' -o -iname 'zdb*' -o -iname 'ztest*' -o -iname 'libzfs*' -o -iname 'libzpool*' ')' -a -type f -o '(' -iname 'zfs*kext' -o  -iname 'spl*kext' ')' -a -type d  >${TMPFILE}
+
+# classifying other files
+if [ -s ${TMPFILE} ] ; then
+    echo "-->>>>--"  >> ${OUTFILE}
+    old_libcnt=${libcnt}
+    old_cmdcnt=${cmdcnt}
+    old_kextcnt=${kextcnt}
+    while read f ; do
+        classify_file -p "${f}"
+    done <${TMPFILE}  >> ${OUTFILE}
+    echo "--<<<<--"  >> ${OUTFILE}
+    cat </dev/null  > ${TMPFILE}
+    echo "Found $((${libcnt} - ${old_libcnt})) other ZFS related libraries, $((${kextcnt} - ${old_kextcnt})) other ZFS kernel modules and $((${cmdcnt} - ${old_cmdcnt})) other ZFS tools." | tee -a ${OUTFILE}
+else
+    echo "No other ZFS related files found."  | tee -a ${OUTFILE}
+fi
+
 
 # try to get version info from files found so far
 if [ ${kextcnt} -gt 0 ] ; then
@@ -208,8 +253,6 @@ if [ ${libcnt} -gt 0 ] ; then
         echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG  >> ${OUTFILE})"
     done
 fi
-
-run_cmd "Looking for other zfs binaries" -k -sl "Found %d other ZFS files" "find /usr/bin /usr/sbin /bin /sbin /usr/local /opt/local '(' -iname zfs -o -iname zpool -o -iname zdb -o -iname ztest -o -iname 'libzfs*' -o -iname 'libzpool*' ')' -a -type f -a -ls"
 
 run_cmd "Looking for loaded kexts"  "kextstat | grep -e zfs -e ZFS -e ZEVO -e zevo -e spl -e com.greenbyte -e com.bandlem"
 
