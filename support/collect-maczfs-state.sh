@@ -136,6 +136,7 @@ if [ ! -z "${pkgs[0]}" ] ; then
             for prefix in "" / /System/Library/Extensions/  /System/Library/Filesystems/  /Library/Extensions/  /Library/Filesystems/ ; do
                 n="${prefix}${f}"
                 if [ -f "${n}" ] ; then
+                    n2="${n##*/}"
                     ls -l "$n"
                     if expr "${n}" : ".*bin/" >/dev/null ; then
                         cmdlist[${cmdcnt}]="${n2}"
@@ -148,16 +149,19 @@ if [ ! -z "${pkgs[0]}" ] ; then
                     n3="${n2##.}"
                     case "${n3}" in
                     (kext)
+                        ls -ld "$n"
                         kextlist[${kextcnt}]="${n2}"
                         kextpathlist[${kextcnt}]="${n}"
                         ((kextcnt++))
                         ;;
                     (fs)
+                        ls -ld "$n"
                         fslist[${fscnt}]="${n2}"
                         fspathlist[${fscnt}]="${n}"
                         ((fscnt++))
                         ;;
                     (dylib)
+                        # "ls -l" done in first "if" block
                         liblist[${libcnt}]="${n2}"
                         libpathlist[${libcnt}]="${n}"
                         ((libcnt++))
