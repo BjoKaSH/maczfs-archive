@@ -104,7 +104,7 @@ function scan_plist() {
 }
 
 # system version
-run_cmd "Determinig system version"  "uname -a"
+run_cmd "Determining system version"  "uname -a"
 
 # find installed version(s)
 run_cmd "Looking for ZFS packages" -v pkgs -sl "Found %d packages" "${PKGTOOL} --pkgs | grep -e zfs -e ZFS -e ZEVO -e zevo"
@@ -251,7 +251,7 @@ else
     echo "Found ${panicCnt} MacZFS related panic logs out of ${panicCntTot} recorded panics."
 fi
 
-rm ${TMPFILE}
+rm ${TMPFILE} ${TMPFILE2}
 
 echo "Done."
 echo
