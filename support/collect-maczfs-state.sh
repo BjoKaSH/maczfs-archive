@@ -233,7 +233,7 @@ if [ ${kextcnt} -gt 0 ] ; then
     for i in "${kextpathlist[@]}" ; do
         scan_plist ${i}/Contents/Info.plist  CFBundleIdentifier  CFBundleName  CFBundleShortVersionString  CFBundleVersion
         for i2 in ${i}/Contents/MacOS/* ; do
-            echo " ${i2} : $(strings ${i2} | grep -e VERSION -e BUILT -e PROG  >> ${OUTFILE})"
+            echo " ${i2} : $(strings ${i2} | grep -e VERSION -e BUILT -e PROG )" >> ${OUTFILE}
         done
     done
 fi
@@ -242,7 +242,7 @@ if [ ${cmdcnt} -gt 0 ] ; then
     echo ""  >> ${OUTFILE}
     echo "Looking for version info in ${cmdcnt} found zfs tools" | tee -a ${OUTFILE}
     for i in "${cmdpathlist[@]}" ; do
-        echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG  >> ${OUTFILE})"
+        echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG )" >> ${OUTFILE}
     done
 fi
 
@@ -250,13 +250,14 @@ if [ ${libcnt} -gt 0 ] ; then
     echo ""  >> ${OUTFILE}
     echo "Looking for version info in ${libcnt} found libraries"  | tee -a  ${OUTFILE}
     for i in "${libpathlist[@]}" ; do
-        echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG  >> ${OUTFILE})"
+        echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG )" >> ${OUTFILE}
     done
 fi
 
 run_cmd "Looking for loaded kexts"  "kextstat | grep -e zfs -e ZFS -e ZEVO -e zevo -e spl -e com.greenbyte -e com.bandlem"
 
-echo "looking for panic reports"
+echo ""  >> ${OUTFILE}
+echo "Looking for panic reports" | tee -a  ${OUTFILE}
 # Determine OS X version
 osxrel_str=$(uname -r)
 osxrel=$(expr ${osxrel_str} : '[0-9]*\.\([0-9][0-9]*\)')
@@ -289,14 +290,15 @@ for i in x $(ls -tr "${PANICS}" ) ; do
     fi
 done
 if [ ${panicCntTot} -eq 0 ] ; then
-    echo "No Panic logs found."
+    echo "No Panic logs found." | tee -a  ${OUTFILE}
 else
-    echo "Found ${panicCnt} MacZFS related panic logs out of ${panicCntTot} recorded panics."
+    echo "Found ${panicCnt} MacZFS related panic logs out of ${panicCntTot} recorded panics." | tee -a  ${OUTFILE}
 fi
 
 rm ${TMPFILE} ${TMPFILE2}
 
-echo "Done."
+echo "" | tee -a  ${OUTFILE}
+echo "Done." | tee -a  ${OUTFILE}
 echo
 echo "You may examine the log file at '${OUTFILE}' (current directory: $(pwd))"
 echo "and then attach it to your problem report at 'http://code.google.com/p/maczfs/issues/'."
