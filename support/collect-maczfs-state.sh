@@ -233,7 +233,7 @@ if [ ${kextcnt} -gt 0 ] ; then
     for i in "${kextpathlist[@]}" ; do
         scan_plist ${i}/Contents/Info.plist  CFBundleIdentifier  CFBundleName  CFBundleShortVersionString  CFBundleVersion
         for i2 in ${i}/Contents/MacOS/* ; do
-            echo " ${i2} : $(strings ${i2} | grep -e VERSION -e BUILT -e PROG )" >> ${OUTFILE}
+            echo " ${i2} : $(strings ${i2} | grep -e VERSION: -e 'BUIL[TD]' -e PROG )" >> ${OUTFILE}
         done
     done
 fi
@@ -242,7 +242,7 @@ if [ ${cmdcnt} -gt 0 ] ; then
     echo ""  >> ${OUTFILE}
     echo "Looking for version info in ${cmdcnt} found zfs tools" | tee -a ${OUTFILE}
     for i in "${cmdpathlist[@]}" ; do
-        echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG )" >> ${OUTFILE}
+        echo " ${i} : $(strings ${i} | grep -e VERSION: -e 'BUIL[TD]' -e PROG )" >> ${OUTFILE}
     done
 fi
 
@@ -250,7 +250,7 @@ if [ ${libcnt} -gt 0 ] ; then
     echo ""  >> ${OUTFILE}
     echo "Looking for version info in ${libcnt} found libraries"  | tee -a  ${OUTFILE}
     for i in "${libpathlist[@]}" ; do
-        echo " ${i} : $(strings ${i} | grep -e VERSION -e BUILT -e PROG )" >> ${OUTFILE}
+        echo " ${i} : $(strings ${i} | grep -e VERSION: -e 'BUIL[TD]' -e PROG )" >> ${OUTFILE}
     done
 fi
 
