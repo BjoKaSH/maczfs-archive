@@ -271,7 +271,7 @@ fi
 
 panicCnt=0
 panicCntTot=0
-for i in x $(ls -tr "${PANICS}" ) ; do
+for i in x $(ls -tr "${PANICS}"/*.panic ) ; do
     if [ "${i}" == "x" ] ; then
         continue
     fi
