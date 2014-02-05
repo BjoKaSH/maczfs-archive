@@ -236,7 +236,7 @@ zfskext_SOURCES += $(addprefix $(src)/uts/common/os/,callb.c kmem.c list.c nvpai
 zfskext_SOURCES += $(addprefix $(src)/uts/common/rpc/,xdr.c xdr_array.c xdr_mem.c) $(src)/uts/common/zmod/zmod.c
 
 zfskext_CFLAGS := -mkernel -DNAMEDSTREAMS -D__APPLE_API_UNSTABLE -D_KERNEL -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE
-zfskext_CFLAGS += -nostdinc -finline -fno-keep-inline-functions -Wmissing-prototypes -Wunused-function -Wunused-label -w -Wshadow -Wnewline-eof -Wno-deprecated-declarations
+zfskext_CFLAGS += -nostdinc -finline -fno-keep-inline-functions -Wmissing-prototypes -Wunused-function -Wunused-label -w -Wshadow -Wno-deprecated-declarations
 zfskext_CFLAGS += -include $(src)/uts/common/fs/zfs/sys/zfs_context.h -include $(src)/uts/common/sys/types.h 
 
 zfskext_INC := 
@@ -259,16 +259,16 @@ zfskext_INSTKEXTDIR := System/Library/Extensions
 zfskext_KEXT_KERNEL := /mach_kernel
 
 zfskext_i386_CFLAGS :=  -DMAC_OS_X_VERSION_MIN_REQUIRED=MAC_OS_X_VERSION_10_6
-zfskext_i386_INC := $(src) $(addprefix $(src)/,maczfs common/avl common/nvpair common/util common/zfs maczfs/kernel uts/common/ uts/common/fs uts/common/os uts/common/rpc uts/common/zmod uts/common/fs/zfs)  /System/Library/Frameworks/Kernel.framework/PrivateHeaders /System/Library/Frameworks/Kernel.framework/Headers
+zfskext_i386_INC := $(src) $(addprefix $(src)/,maczfs common/avl common/nvpair common/util common/zfs maczfs/kernel uts/common/ uts/common/fs uts/common/os uts/common/rpc uts/common/zmod uts/common/fs/zfs common)  /System/Library/Frameworks/Kernel.framework/PrivateHeaders /System/Library/Frameworks/Kernel.framework/Headers
 
 zfskext_x86_64_CFLAGS :=  -DMAC_OS_X_VERSION_MIN_REQUIRED=MAC_OS_X_VERSION_10_6
-zfskext_x86_64_INC := $(src) $(addprefix $(src)/,maczfs common/avl common/nvpair common/util common/zfs maczfs/kernel uts/common/ uts/common/fs uts/common/os uts/common/rpc uts/common/zmod uts/common/fs/zfs)  /System/Library/Frameworks/Kernel.framework/PrivateHeaders /System/Library/Frameworks/Kernel.framework/Headers
+zfskext_x86_64_INC := $(src) $(addprefix $(src)/,maczfs common/avl common/nvpair common/util common/zfs maczfs/kernel uts/common/ uts/common/fs uts/common/os uts/common/rpc uts/common/zmod uts/common/fs/zfs common)  /System/Library/Frameworks/Kernel.framework/PrivateHeaders /System/Library/Frameworks/Kernel.framework/Headers
 
 zfskext_ppc_CFLAGS := -DMAC_OS_X_VERSION_MIN_REQUIRED=MAC_OS_X_VERSION_10_5 -mmacosx-version-min=10.5 -isysroot /Developer/SDKs/MacOSX10.5.sdk 
-zfskext_ppc_INC := $(src) $(addprefix $(src)/,maczfs common/avl common/nvpair common/util common/zfs maczfs/kernel uts/common/ uts/common/fs uts/common/os uts/common/rpc uts/common/zmod uts/common/fs/zfs)  $(addprefix /Developer/SDKs/MacOSX10.5.sdk,/System/Library/Frameworks/Kernel.framework/PrivateHeaders /System/Library/Frameworks/Kernel.framework/Headers)
+zfskext_ppc_INC := $(src) $(addprefix $(src)/,maczfs common/avl common/nvpair common/util common/zfs maczfs/kernel uts/common/ uts/common/fs uts/common/os uts/common/rpc uts/common/zmod uts/common/fs/zfs common)  $(addprefix /Developer/SDKs/MacOSX10.5.sdk,/System/Library/Frameworks/Kernel.framework/PrivateHeaders /System/Library/Frameworks/Kernel.framework/Headers)
 
 zfskext_i386_5_CFLAGS := -DMAC_OS_X_VERSION_MIN_REQUIRED=MAC_OS_X_VERSION_10_5 -mmacosx-version-min=10.5 -isysroot /Developer/SDKs/MacOSX10.5.sdk 
-zfskext_i386_5_INC := $(src) $(addprefix $(src)/,maczfs common/avl common/nvpair common/util common/zfs maczfs/kernel uts/common/ uts/common/fs uts/common/os uts/common/rpc uts/common/zmod uts/common/fs/zfs)  $(addprefix /Developer/SDKs/MacOSX10.5.sdk,/System/Library/Frameworks/Kernel.framework/PrivateHeaders /System/Library/Frameworks/Kernel.framework/Headers)
+zfskext_i386_5_INC := $(src) $(addprefix $(src)/,maczfs common/avl common/nvpair common/util common/zfs maczfs/kernel uts/common/ uts/common/fs uts/common/os uts/common/rpc uts/common/zmod uts/common/fs/zfs common)  $(addprefix /Developer/SDKs/MacOSX10.5.sdk,/System/Library/Frameworks/Kernel.framework/PrivateHeaders /System/Library/Frameworks/Kernel.framework/Headers)
 
 
 libnsl_SOURCES := $(addprefix $(src)/lib/libnsl/rpc/,xdr.c xdr_array.c xdr_mem.c)
