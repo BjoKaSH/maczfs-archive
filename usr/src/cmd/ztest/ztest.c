@@ -2975,7 +2975,7 @@ ztest_verify_blocks(char *pool)
 
 	ztest = strstr(zdb, "/ztest");
 #ifdef ZDB_STATIC
-	strcpy(ztest, "/" ZDB_STATIC);
+	strcpy(ztest, "/" __STRING(ZDB_STATIC));
 #else
 	strcpy(ztest, "/zdb");
 #endif
@@ -2983,7 +2983,7 @@ ztest_verify_blocks(char *pool)
 		/* zdb not found in same path as ztest. */
 		printf("Failed to find zdb as '%s'\n", zdb);
 #ifdef ZDB_STATIC
-		strcpy(zdb,"/usr/sbin/" ZDB_STATIC);
+		strcpy(zdb,"/usr/sbin/" __STRING(ZDB_STATIC));
 #else
 		strcpy(zdb,"/usr/sbin/zdb");
 #endif
