@@ -45,6 +45,8 @@ CFLAGS = -w -g  -std=c99  $(EXT_CFLAGS)
 
 LDFLAGS = -g  $(EXT_LDFLAGS)
 
+LD ?= $(CC)
+
 #
 # known architectures
 #
@@ -198,13 +200,28 @@ $(BUILDBASE)/%/.dir:
 define obj_arch_tpl
 
 $(BUILDBASE)/$(1)_$(2)/%.o: $(SRCROOT)/$(3)%.c  $(BUILDBASE)/$(1)_$(2)/.dir $(MAKEFILE_DEP)
+ifneq ($(VERBOSE),)
 	$(CC) -MMD -o $$@ -c $$< $(CFLAGS) $$(ARCH_EXTRA_$(2)_CFLAGS) $$(addprefix -isystem,$$($(1)_$(2)_INCSYS_ALL)) $$(addprefix -I,$$($(1)_$(2)_INC)) $$($(1)_$(2)_CFLAGS_ALL) $$(addprefix -I,$$($(1)_INC))
+else
+	@echo "Compiling:\t $$<"
+	@$(CC) -MMD -o $$@ -c $$< $(CFLAGS) $$(ARCH_EXTRA_$(2)_CFLAGS) $$(addprefix -isystem,$$($(1)_$(2)_INCSYS_ALL)) $$(addprefix -I,$$($(1)_$(2)_INC)) $$($(1)_$(2)_CFLAGS_ALL) $$(addprefix -I,$$($(1)_INC))
+endif
 
 $(BUILDBASE)/$(1)_$(2)/%.o: $(SRCROOT)/$(3)%.cc  $(BUILDBASE)/$(1)_$(2)/.dir $(MAKEFILE_DEP)
+ifneq ($(VERBOSE),)
 	$(CXX) -MMD -o $$@ -c $$< $(CXXFLAGS) $$(ARCH_EXTRA_$(2)_CXXFLAGS) $$(addprefix -isystem,$$($(1)_$(2)_INCSYS_ALL)) $$(addprefix -I,$$($(1)_$(2)_INC)) $$($(1)_$(2)_CXXFLAGS_ALL) $$(addprefix -I,$$($(1)_INC))
+else
+	@echo "Compiling:\t $$<"
+	$(CXX) -MMD -o $$@ -c $$< $(CXXFLAGS) $$(ARCH_EXTRA_$(2)_CXXFLAGS) $$(addprefix -isystem,$$($(1)_$(2)_INCSYS_ALL)) $$(addprefix -I,$$($(1)_$(2)_INC)) $$($(1)_$(2)_CXXFLAGS_ALL) $$(addprefix -I,$$($(1)_INC))
+endif
 
 $(BUILDBASE)/$(1)_$(4)/%.o: $(SRCROOT)/$(3)%.cpp  $(BUILDBASE)/$(1)_$(2)/.dir $(MAKEFILE_DEP)
+ifneq ($(VERBOSE),)
 	$(CXX) -MMD -o $$@ -c $$< $(CXXFLAGS) $$(ARCH_EXTRA_$(2)_CXXFLAGS) $$(addprefix -isystem,$$($(1)_$(2)_INCSYS_ALL)) $$(addprefix -I,$$($(1)_$(2)_INC)) $$($(1)_$(2)_CXXFLAGS_ALL) $$(addprefix -I,$$($(1)_INC))
+else
+	@echo "Compiling:\t $$<"
+	$(CXX) -MMD -o $$@ -c $$< $(CXXFLAGS) $$(ARCH_EXTRA_$(2)_CXXFLAGS) $$(addprefix -isystem,$$($(1)_$(2)_INCSYS_ALL)) $$(addprefix -I,$$($(1)_$(2)_INC)) $$($(1)_$(2)_CXXFLAGS_ALL) $$(addprefix -I,$$($(1)_INC))
+endif
 
 #
 endef
@@ -431,9 +448,12 @@ endef
 # target-type  : kext, library or executable, used to customize
 #    the help message.
 define tget_maketgets_tpl
-.PHONY: $(1) install-$(1) clean-$(1) distclean-$(1) conf-$(1) help-$(1) help-$(1)-i
+.PHONY: $(1) install-$(1) clean-$(1) distclean-$(1) conf-$(1) help-$(1) help-$(1)-i $(1)-intro
 
-$(1): $(foreach i,$($(1)_BUILD_ARCHS),$(1)_$(i))
+$(1)-intro:
+	@echo "Building:\t $(1)"
+
+$(1): $(1)-intro $(foreach i,$($(1)_BUILD_ARCHS),$(1)_$(i))
 	@echo Done $(1).
 
 install-$(1): $(foreach i,$($(1)_BUILD_ARCHS),install-$(1)-$(i))
@@ -490,7 +510,7 @@ endef
 define exe_arch_tpl
 
 # some internal targets:
-.PHONY: $(1)_$(2) install-$(1)-$(2) install-$(1)-$(2)-headers clean-$(1)-$(2) distclean-$(1)-$(2) conf-$(1)-$(2)
+.PHONY: $(1)_$(2) install-$(1)-$(2) install-$(1)-$(2)-headers clean-$(1)-$(2) distclean-$(1)-$(2) conf-$(1)-$(2) $(1)_$(2)-intro
 
 # libraries we need:
 ifneq ($(strip $($(1)_$(2)_LIBS_AR_DY_OK))x,x)
@@ -510,21 +530,32 @@ else
 ifneq ($(strip $($(1)_$(2)_VERSION_FIN))x,x)
 .PHONY: $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c
 $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c:
-	mkdir -pv $$(dir $$@)
-	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$($(1)_$(2)_INSTNAME_FIN)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
-	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
-	echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
+	@echo "Creating:\t $$@" 
+	@mkdir -pv $$(dir $$@)
+	@echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$($(1)_$(2)_INSTNAME_FIN)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
+	@echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
+	@echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
+ifneq ($(VERBOSE),)
+	@cat $$@
+	@echo Done
+endif
 
 $(1)_$(2)_VERS_O := $(BUILDBASE)/$(1)_$(2)/$(1)_vers.o
 
 endif
 endif
 
+$(1)_$(2)-intro:
+	@echo "Building:\t $(1) @ $(2)"
 
 # the actual linker rule
-$(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN): $($(1)_$(2)_OBJ_ALL)  $$($(1)_$(2)_VERS_O)
-	$(CC) -o $$@ $($(1)_$(2)_OBJ_ALL)  $$($(1)_$(2)_VERS_O)  $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL) $($(1)_$(2)_ARLIBS_OK_PATH)  $($(1)_$(2)_DYLIB_OK_SEARCH) $($(1)_$(2)_DYLIBS_OK_L)  $($(1)_$(2)_LDLIBS_ALL)
-
+$(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN): $(1)_$(2)-intro $($(1)_$(2)_OBJ_ALL)  $$($(1)_$(2)_VERS_O)
+ifneq ($(VERBOSE),)
+	$(LD) -o $$@ $($(1)_$(2)_OBJ_ALL)  $$($(1)_$(2)_VERS_O)  $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL) $($(1)_$(2)_ARLIBS_OK_PATH)  $($(1)_$(2)_DYLIB_OK_SEARCH) $($(1)_$(2)_DYLIBS_OK_L)  $($(1)_$(2)_LDLIBS_ALL)
+else
+	@echo "Linking:\t $$@"
+	@$(LD) -o $$@ $($(1)_$(2)_OBJ_ALL)  $$($(1)_$(2)_VERS_O)  $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL) $($(1)_$(2)_ARLIBS_OK_PATH)  $($(1)_$(2)_DYLIB_OK_SEARCH) $($(1)_$(2)_DYLIBS_OK_L)  $($(1)_$(2)_LDLIBS_ALL)
+endif
 
 # update dependency file for toplevel target
 #
@@ -573,11 +604,11 @@ source-$(1)-$(2):
 
 flags-$(1)-$(2):
 	@echo "$(1): $(2)"
-	@echo "DEF = $($(1)_$(2)_DEF_REAL_ALL)"
-	@echo "INC = $($(1)_$(2)_INC) $($(1)_INC)"
-	@echo "SYS = $($(1)_$(2)_INCSYS_ALL)"
-	@echo "FLAGS = $(CFLAGS) $(ARCH_EXTRA_$(2)_CFLAGS) $(addprefix -isystem,$($(1)_$(2)_INCSYS_ALL)) $(addprefix -I,$($(1)_$(2)_INC)) $($(1)_$(2)_CFLAGS_ALL) $(addprefix -I,$($(1)_INC))"
-	@echo "LDFLAGS = $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL)"
+	@echo 'DEF = $($(1)_$(2)_DEF_REAL_ALL)'
+	@echo 'INC = $($(1)_$(2)_INC) $($(1)_INC)'
+	@echo 'SYS = $($(1)_$(2)_INCSYS_ALL)'
+	@echo 'FLAGS = $(CFLAGS) $(ARCH_EXTRA_$(2)_CFLAGS) $(addprefix -isystem,$($(1)_$(2)_INCSYS_ALL)) $(addprefix -I,$($(1)_$(2)_INC)) $($(1)_$(2)_CFLAGS_ALL) $(addprefix -I,$($(1)_INC))'
+	@echo 'LDFLAGS = $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL)'
 
 #
 endef
@@ -619,7 +650,7 @@ endef
 define lib_arch_tpl
 
 # some internal targets:
-.PHONY: $(1)_$(2) install-$(1)-$(2) install-$(1)-$(2)-headers clean-$(1)-$(2) distclean-$(1)-$(2) conf-$(1)-$(2)
+.PHONY: $(1)_$(2) install-$(1)-$(2) install-$(1)-$(2)-headers clean-$(1)-$(2) distclean-$(1)-$(2) conf-$(1)-$(2) $(1)_$(2)-intro
 
 # libraries we need:
 ifneq ($(strip $($(1)_$(2)_LIBS_AR_DY_OK))x,x)
@@ -627,20 +658,36 @@ $(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).$(LNKEXT): $($(1)_$(2)_LIBS_AR_
 endif
 
 # first, build a static library.  we do this in any case.
+$(1)_$(2)-intro:
+	@echo "Building:\t $(1) @ $(2)"
+
 ifeq ($(strip $($(1)_$(2)_LIBS_AR_DY_OK))x,x)
 # no other libraries to link in -> just collect all objects
-$(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).$(LNKEXT): $($(1)_$(2)_OBJ_ALL)
+$(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).$(LNKEXT): $(1)_$(2)-intro $($(1)_$(2)_OBJ_ALL)
+ifneq ($(VERBOSE),)
 	ar rs $$@ $($(1)_$(2)_OBJ_ALL)
+else
+	@echo "Creating archive:\t $$@"
+	@ar rs $$@ $($(1)_$(2)_OBJ_ALL)
+endif
 else
 # other libraries needed.  get all of them, merge with the object files.
 # path to the actual static library files:
 $(1)_$(2)_LIBS_AR_DY_OK_PATH := $(foreach i,$($(1)_$(2)_LIBS_AR_DY_OK),$(BUILDBASE)/$(i)_$(2)/$($(i)_$(2)_INSTNAME_FIN).$(LNKEXT))
 
-$(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).$(LNKEXT): $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_LIBS_AR_DY_OK_PATH)
+$(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).$(LNKEXT): $(1)_$(2)-intro $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_LIBS_AR_DY_OK_PATH)
+ifneq ($(VERBOSE),)
 	mkdir -pv $$@.tax
 	cd $$@.tax ; for i in $$($(1)_$(2)_LIBS_AR_DY_OK_PATH) ; do ar -x -o  $$$${i} ; done
 	ar rs $$@ $$@.tax/* $($(1)_$(2)_OBJ_ALL)
 	rm -r $$@.tax
+else
+	@echo "Merging archive:\t $$@"
+	@mkdir -pv $$@.tax
+	@cd $$@.tax ; for i in $$($(1)_$(2)_LIBS_AR_DY_OK_PATH) ; do ar -x -o  $$$${i} ; done
+	@ar rs $$@ $$@.tax/* $($(1)_$(2)_OBJ_ALL)
+	@rm -r $$@.tax
+endif
 endif
 
 # record which files to delete on a "clean"
@@ -680,10 +727,15 @@ else
 ifneq ($(strip $($(1)_$(2)_VERSION_FIN))x,x)
 .PHONY: $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c
 $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c:
-	mkdir -pv $$(dir $$@)
-	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$($(1)_$(2)_INSTNAME_FIN)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
-	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
-	echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
+	@echo "Creating:\t $$@"
+	@mkdir -pv $$(dir $$@)
+	@echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$($(1)_$(2)_INSTNAME_FIN)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
+	@echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
+	@echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
+ifneq ($(VERBOSE),)
+	@cat $$@
+	@echo Done
+endif
 
 $(1)_$(2)_VERS_O := $(BUILDBASE)/$(1)_$(2)/$(1)_vers.o
 
@@ -693,7 +745,12 @@ endif
 ifeq ($(strip $($(1)_$(2)_LIBS_AR_DY_OK))x,x)
 # no other libraries to link in -> just collect all objects
 $(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).$(DYEXT): $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_VERS_O)
+ifneq ($(VERBOSE),)
 	libtool -dynamic -install_name /$($(1)_$(2)_INSTLIBDIR_FIN)/$($(1)_$(2)_INSTNAME_FIN).$(DYEXT) -current_version $($(1)_$(2)_VERS_FIN)  -o $$@ $($(1)_$(2)_LDFLAGS_ALL) $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_VERS_O)  $($(1)_$(2)_LDLIBS_ALL)
+else
+	@echo "Linking:\t $$@"
+	@libtool -dynamic -install_name /$($(1)_$(2)_INSTLIBDIR_FIN)/$($(1)_$(2)_INSTNAME_FIN).$(DYEXT) -current_version $($(1)_$(2)_VERS_FIN)  -o $$@ $($(1)_$(2)_LDFLAGS_ALL) $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_VERS_O)  $($(1)_$(2)_LDLIBS_ALL)
+endif
 
 else
 
@@ -701,7 +758,12 @@ else
 $(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).$(DYEXT): $$($(1)_$(2)_DYLIBS_OK_PATH)
 
 $(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).$(DYEXT): $($(1)_$(2)_OBJ_ALL)  $$($(1)_$(2)_ARLIBS_OK_PATH)  $$($(1)_$(2)_VERS_O)
+ifneq ($(VERBOSE),)
 	libtool -dynamic -install_name /$($(1)_$(2)_INSTLIBDIR_FIN)/$($(1)_$(2)_INSTNAME_FIN).$(DYEXT) -current_version $($(1)_$(2)_VERS_FIN)  -o $$@ $($(1)_$(2)_LDFLAGS_ALL)  $($(1)_$(2)_OBJ_ALL)  $$($(1)_$(2)_ARLIBS_OK_PATH)  $$($(1)_$(2)_VERS_O)  $$($(1)_$(2)_DYLIB_OK_SEARCH) $$($(1)_$(2)_DYLIBS_OK_L)  $($(1)_$(2)_LDLIBS_ALL)
+else
+	@echo "Linking:\t $$@"
+	@libtool -dynamic -install_name /$($(1)_$(2)_INSTLIBDIR_FIN)/$($(1)_$(2)_INSTNAME_FIN).$(DYEXT) -current_version $($(1)_$(2)_VERS_FIN)  -o $$@ $($(1)_$(2)_LDFLAGS_ALL)  $($(1)_$(2)_OBJ_ALL)  $$($(1)_$(2)_ARLIBS_OK_PATH)  $$($(1)_$(2)_VERS_O)  $$($(1)_$(2)_DYLIB_OK_SEARCH) $$($(1)_$(2)_DYLIBS_OK_L)  $($(1)_$(2)_LDLIBS_ALL)
+endif
 
 # end of else: no other libraries to link in -> just collect all objects
 endif
@@ -733,8 +795,8 @@ endif
 # install any headers?
 ifeq ($($(1)_$(2)_DO_INST_HDRS),YES)
 install-$(1)-$(2)-headers: $($(1)_$(2)_INSTHDRS_ALL)
-	install -v -d  $(INSTBASE)/$(2)/$($(1)_$(2)_INSTHDRSDIR_FIN)
-	install -v -c $($(1)_$(2)_INSTHDRS_ALL)   $(INSTBASE)/$(2)/$($(1)_$(2)_INSTHDRSDIR_FIN)
+	@install -v -d  $(INSTBASE)/$(2)/$($(1)_$(2)_INSTHDRSDIR_FIN)
+	@install -v -c $($(1)_$(2)_INSTHDRS_ALL)   $(INSTBASE)/$(2)/$($(1)_$(2)_INSTHDRSDIR_FIN)
 	@echo Done
 
 clean-$(1)-$(2)-FILES += $(addprefix $(INSTBASE)/$(2)/$($(1)_$(2)_INSTHDRSDIR_FIN)/,$(notdir $($(1)_$(2)_INSTHDRS_ALL)))
@@ -801,11 +863,11 @@ source-$(1)-$(2):
 
 flags-$(1)-$(2):
 	@echo "$(1): $(2)"
-	@echo "DEF = $($(1)_$(2)_DEF_REAL_ALL)"
-	@echo "INC = $($(1)_$(2)_INC) $($(1)_INC)"
-	@echo "SYS = $($(1)_$(2)_INCSYS_ALL)"
-	@echo "FLAGS = $(CFLAGS) $(ARCH_EXTRA_$(2)_CFLAGS) $(addprefix -isystem,$($(1)_$(2)_INCSYS_ALL)) $(addprefix -I,$($(1)_$(2)_INC)) $($(1)_$(2)_CFLAGS_ALL) $(addprefix -I,$($(1)_INC))"
-	@echo "LDFLAGS = $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL)"
+	@echo 'DEF = $($(1)_$(2)_DEF_REAL_ALL)'
+	@echo 'INC = $($(1)_$(2)_INC) $($(1)_INC)'
+	@echo 'SYS = $($(1)_$(2)_INCSYS_ALL)'
+	@echo 'FLAGS = $(CFLAGS) $(ARCH_EXTRA_$(2)_CFLAGS) $(addprefix -isystem,$($(1)_$(2)_INCSYS_ALL)) $(addprefix -I,$($(1)_$(2)_INC)) $($(1)_$(2)_CFLAGS_ALL) $(addprefix -I,$($(1)_INC))'
+	@echo 'LDFLAGS = $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL)'
 
 #
 endef
@@ -871,7 +933,7 @@ endef
 define kext_arch_tpl
 
 # some internal targets:
-.PHONY: $(1)_$(2) install-$(1)-$(2) install-$(1)-$(2)-headers clean-$(1)-$(2) distclean-$(1)-$(2) conf-$(1)-$(2) test-$(1)-$(2)
+.PHONY: $(1)_$(2) install-$(1)-$(2) install-$(1)-$(2)-headers clean-$(1)-$(2) distclean-$(1)-$(2) conf-$(1)-$(2) test-$(1)-$(2) $(1)_$(2)-intro
 
 # libraries we need:
 ifneq ($(strip $($(1)_$(2)_LIBS_AR_DY_OK))x,x)
@@ -891,10 +953,15 @@ else
 ifneq ($(strip $($(1)_$(2)_VERSION_FIN))x,x)
 .PHONY: $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c
 $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_vers.c:
-	mkdir -pv $$(dir $$@)
-	echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$(1)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
-	echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
-	echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
+	@echo "Creating:\t $$@"
+	@mkdir -pv $$(dir $$@)
+	@echo 'const unsigned char zfsVersionString[] __attribute__ ((used)) = "@(#)PROGRAM:$(1)  PROJECT:$($(1)_$(2)_DESCRIPTION_FIN)  VERSION:$($(1)_$(2)_VERSION_FIN)  BUILT:$(shell date +%Y-%m-%d_%H.%M_%z)" "\\n";' >$$@
+	@echo 'const double zfsVersionNumber __attribute__ ((used)) = (double)$(basename $($(1)_$(2)_VERSION_FIN));'  >>$$@
+	@echo 'const unsigned char VERS_NUM[] __attribute__ ((used)) = "$(strip $($(1)_$(2)_VERSION_FIN))";'  >>$$@
+ifneq ($(VERBOSE),)
+	@cat $$@
+	@echo Done
+endif
 
 $(1)_$(2)_VERS_O := $(BUILDBASE)/$(1)_$(2)/$(1)_vers.o
 
@@ -915,18 +982,19 @@ else
 ifneq ($(strip $($(1)_$(2)_KEXT_VERSION_FIN))x,x)
 .PHONY: $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_info.c
 $(SRCROOT)/generated-sources/$(1)_$(2)/$(1)_info.c:
-	mkdir -pv $$(dir $$@)
-	echo '#include <mach/mach_types.h>'  >$$@
-	echo   >>$$@
-	echo 'extern kern_return_t _start(kmod_info_t *ki, void *data);'  >>$$@
-	echo 'extern kern_return_t _stop(kmod_info_t *ki, void *data);'  >>$$@
-	echo '__private_extern__ kern_return_t $($(1)_$(2)_KEXT_START_FIN)(kmod_info_t *ki, void *data);'  >>$$@
-	echo '__private_extern__ kern_return_t $($(1)_$(2)_KEXT_STOP_FIN)(kmod_info_t *ki, void *data);'  >>$$@
-	echo   >>$$@
-	echo '__attribute__((visibility("default"))) KMOD_EXPLICIT_DECL($($(1)_$(2)_KEXT_ID_FIN), "$($(1)_$(2)_KEXT_VERSION_FIN)", _start, _stop)'  >>$$@
-	echo '__private_extern__ kmod_start_func_t *_realmain = $($(1)_$(2)_KEXT_START_FIN);'  >>$$@
-	echo '__private_extern__ kmod_stop_func_t *_antimain = $($(1)_$(2)_KEXT_STOP_FIN);'  >>$$@
-	echo '__private_extern__ int _kext_apple_cc = __APPLE_CC__ ;'  >>$$@
+	@echo "Creating:\t $$@"
+	@mkdir -pv $$(dir $$@)
+	@echo '#include <mach/mach_types.h>'  >$$@
+	@echo   >>$$@
+	@echo 'extern kern_return_t _start(kmod_info_t *ki, void *data);'  >>$$@
+	@echo 'extern kern_return_t _stop(kmod_info_t *ki, void *data);'  >>$$@
+	@echo '__private_extern__ kern_return_t $($(1)_$(2)_KEXT_START_FIN)(kmod_info_t *ki, void *data);'  >>$$@
+	@echo '__private_extern__ kern_return_t $($(1)_$(2)_KEXT_STOP_FIN)(kmod_info_t *ki, void *data);'  >>$$@
+	@echo   >>$$@
+	@echo '__attribute__((visibility("default"))) KMOD_EXPLICIT_DECL($($(1)_$(2)_KEXT_ID_FIN), "$($(1)_$(2)_KEXT_VERSION_FIN)", _start, _stop)'  >>$$@
+	@echo '__private_extern__ kmod_start_func_t *_realmain = $($(1)_$(2)_KEXT_START_FIN);'  >>$$@
+	@echo '__private_extern__ kmod_stop_func_t *_antimain = $($(1)_$(2)_KEXT_STOP_FIN);'  >>$$@
+	@echo '__private_extern__ int _kext_apple_cc = __APPLE_CC__ ;'  >>$$@
 
 
 $(1)_$(2)_INFO_O := $(BUILDBASE)/$(1)_$(2)/$(1)_info.o
@@ -934,12 +1002,14 @@ $(1)_$(2)_INFO_O := $(BUILDBASE)/$(1)_$(2)/$(1)_info.o
 endif
 endif
 
+$(1)_$(2)-intro:
+	@echo "Building:\t $(1) @ $(2)"
 
 # actual linker rule
-$(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).kext/Contents/MacOS/$($(1)_$(2)_INSTNAME_FIN): $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_VERS_O)  $$($(1)_$(2)_INFO_O)
+$(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).kext/Contents/MacOS/$($(1)_$(2)_INSTNAME_FIN): $(1)_$(2)-intro $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_VERS_O)  $$($(1)_$(2)_INFO_O)
 	rm -rf $(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).kext
 	mkdir -pv $$(dir $$@)
-	$(CC) -o $$@  $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_VERS_O)  $$($(1)_$(2)_INFO_O)  $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL) $($(1)_$(2)_ARLIBS_OK_PATH)  $($(1)_$(2)_DYLIB_OK_SEARCH) $($(1)_$(2)_DYLIBS_OK_L)  $($(1)_$(2)_LDLIBS_ALL)
+	$(LD) -o $$@  $($(1)_$(2)_OBJ_ALL) $$($(1)_$(2)_VERS_O)  $$($(1)_$(2)_INFO_O)  $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL) $($(1)_$(2)_ARLIBS_OK_PATH)  $($(1)_$(2)_DYLIB_OK_SEARCH) $($(1)_$(2)_DYLIBS_OK_L)  $($(1)_$(2)_LDLIBS_ALL)
 ifneq ($(strip $($(1)_$(2)_KEXT_PLIST_FIN))x,x)
 	cp -p $($(1)_$(2)_KEXT_PLIST_FIN)  $(BUILDBASE)/$(1)_$(2)/$($(1)_$(2)_INSTNAME_FIN).kext/Contents/
 ifneq ($(strip $($(1)_$(2)_KEXT_DESCRIPTION_FIN))x,x)
@@ -1008,11 +1078,11 @@ source-$(1)-$(2):
 
 flags-$(1)-$(2):
 	@echo "$(1): $(2)"
-	@echo "DEF = $($(1)_$(2)_DEF_REAL_ALL)"
-	@echo "INC = $($(1)_$(2)_INC) $($(1)_INC)"
-	@echo "SYS = $($(1)_$(2)_INCSYS_ALL)"
-	@echo "FLAGS = $(CFLAGS) $(ARCH_EXTRA_$(2)_CFLAGS) $(addprefix -isystem,$($(1)_$(2)_INCSYS_ALL)) $(addprefix -I,$($(1)_$(2)_INC)) $($(1)_$(2)_CFLAGS_ALL) $(addprefix -I,$($(1)_INC))"
-	@echo "LDFLAGS = $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL)"
+	@echo 'DEF = $($(1)_$(2)_DEF_REAL_ALL)'
+	@echo 'INC = $($(1)_$(2)_INC) $($(1)_INC)'
+	@echo 'SYS = $($(1)_$(2)_INCSYS_ALL)'
+	@echo 'FLAGS = $(CFLAGS) $(ARCH_EXTRA_$(2)_CFLAGS) $(addprefix -isystem,$($(1)_$(2)_INCSYS_ALL)) $(addprefix -I,$($(1)_$(2)_INC)) $($(1)_$(2)_CFLAGS_ALL) $(addprefix -I,$($(1)_INC))'
+	@echo 'LDFLAGS = $(LDFLAGS) $(ARCH_EXTRA_$(2)_LDFLAGS) $($(1)_$(2)_LDFLAGS_ALL)'
 
 test-$(1)-$(2): install-$(1)-$(2)
 ifneq ($(strip $($(1)_$(2)_KEXT_KERNEL_FIN))x,x)
@@ -1097,6 +1167,13 @@ help-intro:
 
 
 help: help-intro $(foreach i,$(ALL_EXE) $(ALL_LIBS) $(ALL_KEXT),help-$(i)-i)
+	@echo
+	@echo Some influencial variables
+	@echo EXT_{CXXFLAGS, CFLAGS, LDFLAGS} : extra arguments for compiler and linker
+	@echo SRCROOT : root of source tree, for out-of-tree builds
+	@echo BUILDBASE : root of the build directory
+	@echo ARCH_AVAIL : arhitectures to build
+	@echo
 	@echo Done
 
 conf-intro:
