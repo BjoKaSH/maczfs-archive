@@ -3775,7 +3775,10 @@ out:
 	zfs_dirent_unlock(dl);
 // Issue 34
 #ifdef __APPLE__
-        vnode_put(ZTOV(zp));
+//        vnode_put(ZTOV(zp));  // according to bsd/sys/vnode_if.h we are
+//	 supposed to *not* drop the riocount, instead, we should return the vnode
+	vnode_t **vpp = ap->a_vpp;
+	*vpp = ZTOV(zp);
 #else
 	VN_RELE(ZTOV(zp));
 #endif
