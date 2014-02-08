@@ -419,12 +419,34 @@ build_group := $(shell id -gn)
 install_user := root
 install_group := wheel
 
-.PHONY: install_man
+.PHONY: install_man install_dsym
 
 install_man:
 	mkdir -pv build/ZFS105/usr/share/man build/ZFS106/usr/share/man
 	cp -vr zfs_documentation/man8 build/ZFS105/usr/share/man/
 	cp -vr zfs_documentation/man8 build/ZFS106/usr/share/man/
+
+install_dsym: install
+	for i in $(ARCH_AVAIL) ; do \
+		for i2 in $(ALL_EXE) ; do \
+			mydir=$${i2}_$${i}_INSTEXEDIR_FIN ; \
+			myname=$${i2}_$${i}_INSTNAME_FIN ; \
+			dsymutil --verbose $(INSTBASE)/$${i}/$${!mydir}/$${!myname} ; \
+		done ; \
+		for i2 in $(ALL_LIBS) ; do \
+			mydir=$${i2}_$${i}_INSTLIBDIR_FIN ; \
+			myname=$${i2}_$${i}_INSTNAME_FIN ; \
+			if [ -e $(INSTBASE)/$${i}/$${!mydir}/$${!myname}.dylib ] ; then \
+				dsymutil --verbose $(INSTBASE)/$${i}/$${!mydir}/$${!myname}.dylib ; \
+			fi ; \
+		done ; \
+		for i2 in $(ALL_KEXT) ; do \
+			mydir=$${i2}_$${i}_INSTKEXTDIR_FIN ; \
+			myname=$${i2}_$${i}_INSTNAME_FIN ; \
+			dsymutil --verbose $(INSTBASE)/$${i}/$${!mydir}/$${!myname}.kext/Contents/MacOS/$${!myname} ; \
+		done ; \
+	done ;
+
 
 release: install install_man
 	mkdir -pv build/ZFS105 build/ZFS106
