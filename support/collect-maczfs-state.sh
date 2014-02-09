@@ -260,7 +260,8 @@ echo ""  >> ${OUTFILE}
 echo "Looking for panic reports" | tee -a  ${OUTFILE}
 # Determine OS X version
 osxrel_str=$(uname -r)
-osxrel=$(expr ${osxrel_str} : '[0-9]*\.\([0-9][0-9]*\)')
+osxrel_kernel=$(expr ${osxrel_str} : '\([0-9][0-9]*\)\.[0-9][0-9]*')
+osxrel=$((osxrel_kernel - 4))
 if [ ${osxrel} -eq 5 ] ; then
 	# For 10.5 systems
 	PANICS='/Library/Logs/PanicReporter'
@@ -275,16 +276,16 @@ for i in x $(ls -tr "${PANICS}"/*.panic ) ; do
     if [ "${i}" == "x" ] ; then
         continue
     fi
-    if [ ! -f "${PANICS}/${i}" ] ; then
+    if [ ! -f "${i}" ] ; then
         continue
     fi
     ((panicCntTot++))
-    if grep -e 'zfs' "${PANICS}/${i}" >/dev/null ; then
+    if grep -e 'zfs' "${i}" >/dev/null ; then
         echo "   ${i}"
         echo "" >>${OUTFILE}
-        ls -l  "${PANICS}/${i}" >>${OUTFILE}
+        ls -l  "${i}" >>${OUTFILE}
         echo "-->>>>--"  >> ${OUTFILE}
-        cat "${PANICS}/${i}" >>${OUTFILE}
+        cat "${i}" >>${OUTFILE}
         echo "--<<<<--"  >> ${OUTFILE}
         ((panicCnt++))
     fi
