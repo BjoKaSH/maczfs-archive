@@ -45,7 +45,9 @@ CFLAGS = -w -g  -std=c99  $(EXT_CFLAGS)
 
 LDFLAGS = -g  $(EXT_LDFLAGS)
 
-LD ?= $(CC)
+ifneq "$(filter undefined default,$(origin LD))" ""
+LD = $(CC)
+endif
 
 #
 # known architectures
