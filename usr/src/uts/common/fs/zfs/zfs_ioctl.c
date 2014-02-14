@@ -2443,7 +2443,7 @@ static int
 		return 0;
 	} else {
 		/* intercept repeated version check and return success. */
-		if (cmd == ZFS_IOC__VERSION_CHECK)
+		if (vec == ZFS_IOC_NUM(ZFS_IOC__VERSION_CHECK))
 			return 0;
 	}
 
