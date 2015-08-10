@@ -1,0 +1,1 @@
+This document has been absorbed into the [FAQ](FAQ.md).
